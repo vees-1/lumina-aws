@@ -13,7 +13,7 @@ resource "aws_cognito_user_pool" "pool" {
 }
 
 resource "aws_cognito_user_pool_domain" "domain" {
-  domain       = "${var.app_name}-${var.environment}-auth"
+  domain       = "lumina-app-${var.environment}-auth"
   user_pool_id = aws_cognito_user_pool.pool.id
 }
 
