@@ -29,20 +29,24 @@
 
 <div align="center">
 
-![Official AWS Architecture Diagram](docs/assets/aws_official_architecture_diagram.png)
+![Expanded Official AWS Architecture Diagram](docs/assets/aws_official_architecture_diagram.png)
 
 </div>
 
-### Architecture Request & Execution Steps
+### Component & Dataset Responsibility Breakdown
 
-1. **Static Web Serving**: The user browser loads the Next.js static export SPA from **Amazon CloudFront CDN** backed by a private **Amazon S3 Static Web Bucket** via Origin Access Control (OAC).
-2. **Identity & OAuth**: The user authenticates via **Amazon Cognito Hosted UI & User Pool**, receiving an RS256-signed JWT token carrying role claims (`doctor` or `patient`).
-3. **API Entry Point**: API calls pass to **Amazon API Gateway** (HTTP API) with the JWT `Authorization` header.
-4. **Serverless Compute**: API Gateway routes requests to **AWS Lambda (FastAPI Handler)**, which validates JWT claims and executes business logic.
-5. **Persistence**: Lambda reads/writes application state to a single-table **Amazon DynamoDB** (`lumina-aws-prod-app`).
-6. **Private File Storage**: Uploaded patient photos and lab reports write directly to **Amazon S3 (Private Uploads Bucket)** using time-limited Presigned URLs.
-7. **Async Job Queue**: Heavy extraction tasks are enqueued to an **Amazon SQS Jobs Queue**.
-8. **AI Worker & Bedrock**: **AWS Lambda Worker** consumes SQS jobs, invokes **Amazon Bedrock** (Claude 3 Haiku / Nova Micro) for phenotype extraction, validates HPO IDs against the local **Orphanet/HPO SQLite** ontology graph, and writes results to DynamoDB.
+| Service / Asset | Lumina Application Role & Location |
+| :--- | :--- |
+| **Amazon CloudFront & S3** | **Static Web SPA Hosting**: Serves static HTML/JS/CSS export bundle globally (`apps/web/out`). |
+| **Amazon Cognito** | **User Login & Role Enforcement**: Manages sign-in/sign-up and issues RS256 JWT tokens (`doctor` & `patient` groups). |
+| **Amazon API Gateway** | **HTTP API Gateway**: Handles CORS, routing, and forwards Bearer tokens to Lambda. |
+| **AWS Lambda (FastAPI API)** | **Backend Business Logic**: Verifies JWT claims, executes submission CRUD, case linking, and referral releases. |
+| **Amazon DynamoDB** | **Single-Table Application Database**: Stores Submissions, Cases, Message History, and User Profiles (`PK`, `SK`, `GSI1`, `GSI2`). |
+| **Amazon S3 (Uploads Bucket)** | **Private Encrypted Medical Storage**: Stores patient photos and lab PDFs accessed via short-lived Presigned URLs. |
+| **Packaged SQLite Reference DB** | **Orphanet & HPO Medical Knowledge Graph**: Bundled read-only database (`orpha.sqlite`) containing 6,000+ rare disease profiles, HPO phenotype associations, and gene relationships directly inside the Lambda execution environment. |
+| **Amazon SQS Jobs Queue** | **Async AI Processing Queue**: Decouples heavy AI document processing and scoring tasks. |
+| **AWS Lambda Worker** | **Background Execution**: Consumes SQS records, invokes Bedrock AI, validates HPO IDs against local HPO graph, and writes results to DynamoDB. |
+| **Amazon Bedrock** | **GenAI Extraction Engine**: Runs Claude 3 Haiku / Nova Micro for structured phenotype extraction with $0 default `DEMO` fallback. |
 
 ---
 
