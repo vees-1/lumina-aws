@@ -62,8 +62,9 @@ scratch/
 # package locks inside sub-packages (root pnpm-lock.yaml is authoritative)
 packages/**/uv.lock
 
-# ml model artifacts
-*.pkl
-*.pt
-*.bin
-hpo_embeddings.json
+# terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+dummy_lambda.zip
+
