@@ -1,0 +1,69 @@
+# markdown docs
+# (All .md files are now tracked by default)
+# EXCEPT local-only private project docs:
+GEMINI.md
+LUMINA.md
+AGENTS.md
+PROJECT_RULES.md
+STRUCTURE.md
+apps/web/AGENTS.md
+test-results/
+
+# deps
+node_modules/
+.pnpm-store/
+
+# next.js
+apps/web/.next/
+apps/web/out/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+apps/api/.venv/
+*.egg-info/
+dist/
+.uv/
+
+# env
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+!**/.env.example
+
+# vercel
+.vercel/
+
+# db / indexes
+*.sqlite
+*.sqlite-journal
+*.index
+
+# datasets — too large for git, download separately per data/README.md
+data/
+
+# os
+.DS_Store
+Thumbs.db
+
+# editors
+.idea/
+.vscode/
+*.swp
+
+# build artifacts
+packages/**/build/
+packages/**/*.egg-info/
+scratch/
+
+# package locks inside sub-packages (root pnpm-lock.yaml is authoritative)
+packages/**/uv.lock
+
+# ml model artifacts
+*.pkl
+*.pt
+*.bin
+hpo_embeddings.json

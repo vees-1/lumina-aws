@@ -1,0 +1,55 @@
+[project]
+name = "api"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "groq>=0.13.0",
+    "cyvcf2>=0.32.1",
+    "extractors",
+    "fastapi>=0.136.0",
+    "httpx>=0.28.1",
+    "ingest",
+    "lxml>=6.1.0",
+    "pillow>=12.2.0",
+    "pyhpo>=4.0.0",
+    "pytesseract>=0.3.13",
+    "pypdf>=6.4.0",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.26",
+    "reportlab>=4.4.4",
+    "scoring",
+    "sqlmodel>=0.0.38",
+    "uvicorn[standard]>=0.44.0",
+    # scispacy: local HPO NER — NOT in core deps (spacy/blis incompatible with Python 3.14)
+    # Install manually on Python 3.12 env:
+    #   pip install scispacy
+    #   pip install https://s3-us-west-2.amazonaws.com/ai2-s3-scispacy/releases/v0.5.4/en_core_sci_md-0.5.4.tar.gz
+    # semantic HPO fuzzy matching; optional — methods return [] if absent
+    "sentence-transformers>=3.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.0.0",
+    "ruff>=0.15.11",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.uv.sources]
+ingest = { path = "../../packages/ingest" }
+scoring = { path = "../../packages/scoring" }
+extractors = { path = "../../packages/extractors" }
+
+[tool.uv.extra-build-dependencies]
+ingest = ["setuptools>=61.0"]
+scoring = ["setuptools>=61.0"]
+extractors = ["setuptools>=61.0"]

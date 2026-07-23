@@ -1,0 +1,13 @@
+data/
+apps/api/.venv
+apps/api/**/__pycache__
+packages/**/__pycache__
+packages/**/build
+packages/**/.venv
+**/*.pyc
+**/*.pyo
+*.sqlite
+*.sqlite3
+scripts/
+tests/
+.pytest_cache/
