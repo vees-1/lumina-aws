@@ -45,13 +45,16 @@ This repository tracks the phased migration of Lumina into an AWS-native SaaS ar
    - Status: complete.
 
 5. Phase 5 - Async jobs + Bedrock adapter
-   - Add SQS-backed extraction/scoring jobs.
-   - Replace direct Groq usage with a provider abstraction.
-   - Keep `DEMO` provider as the default to avoid accidental Bedrock spend.
+   - Added SQS-backed async extraction/scoring jobs with DynamoDB status tracking.
+   - Provider abstraction: `DemoProvider` (default $0 spend), `BedrockProvider` (AWS Bedrock runtime), `GroqProvider`.
+   - Local HPO vocabulary validation filters out hallucinated model HPO IDs.
+   - Status: complete.
 
 6. Phase 6 - Terraform + deployment hardening
-   - Add Terraform for Cognito, S3, CloudFront, API Gateway, Lambda, DynamoDB, SQS, IAM, CloudWatch, Budgets, and GitHub Actions OIDC.
-   - Add deployment workflows and cost guardrails.
+   - Modular Terraform in `infra/terraform` provisioning Cognito, S3 static web bucket, CloudFront OAC, API Gateway, Lambda API/Worker, DynamoDB single-table, SQS/DLQ, IAM roles, CloudWatch log groups (7-day retention), AWS Budget alert ($5/month limit), and GitHub Actions OIDC deploy role.
+   - Added GitHub Actions deployment workflow (`.github/workflows/deploy.yml`).
+   - Free-tier conscious design (no NAT Gateway, ALB, Fargate, RDS, or OpenSearch).
+   - Status: complete.
 
 ## Baseline Issues
 

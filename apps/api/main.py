@@ -12,6 +12,7 @@ from ingest.models import HPOTerm as HPOTermModel  # noqa: E402
 from scoring.ranker import ScoringIndex  # noqa: E402
 from sqlmodel import Session, select  # noqa: E402
 
+from api.jobs import jobs_router as jobs_router  # noqa: E402
 from api.routes.agent import router as agent_router  # noqa: E402
 from api.routes.disease import router as disease_router  # noqa: E402
 from api.routes.fhir import router as fhir_router  # noqa: E402
@@ -96,6 +97,7 @@ app.include_router(disease_router)
 app.include_router(fhir_router)
 app.include_router(search_router)
 app.include_router(submissions_router)
+app.include_router(jobs_router)
 
 
 @app.get("/health")
