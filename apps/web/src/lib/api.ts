@@ -1,6 +1,6 @@
 import type { CaseData, CaseOutcome, CaseSummary, GeneticEvidence, HPOTerm, PatientContext, PatientSubmission, PatientSummary, RankResult, VisitRecommendation } from "@/types/lumina";
 
-const API = "/api";
+const API = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "") || "/api";
 type StoredCaseSummary = CaseSummary & { status: CaseOutcome };
 export type ApiActor = { userId: string; role: "doctor" | "patient"; token?: string };
 
