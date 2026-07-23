@@ -2,7 +2,7 @@ import type { CaseData, CaseOutcome, CaseSummary, GeneticEvidence, HPOTerm, Pati
 
 const API = "/api";
 type StoredCaseSummary = CaseSummary & { status: CaseOutcome };
-export type ApiActor = { userId: string; role: "doctor" | "patient" };
+export type ApiActor = { userId: string; role: "doctor" | "patient"; token?: string };
 
 export interface ApiHealth {
   status: string;
@@ -31,10 +31,13 @@ export async function getApiHealth(signal?: AbortSignal): Promise<ApiHealth> {
 }
 
 function actorHeaders(actor: ApiActor): HeadersInit {
-  return {
-    "x-lumina-user-id": actor.userId,
-    "x-lumina-role": actor.role,
-  };
+  const headers: Record<string, string> = {};
+  if (actor.token) {
+    headers["Authorization"] = `Bearer ${actor.token}`;
+  } else {
+    headers["Authorization"] = `Bearer local-${actor.role}`;
+  }
+  return headers;
 }
 
 function caseToSummary(caseData: CaseData): StoredCaseSummary {

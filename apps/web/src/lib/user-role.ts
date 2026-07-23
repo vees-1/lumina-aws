@@ -1,3 +1,5 @@
+import { clearCognitoTokens, getStoredCognitoClaims, getStoredCognitoToken } from "./cognito-auth";
+
 export type UserRole = "doctor" | "patient";
 
 const ROLE_STORAGE_KEY = "lumina_user_role";
@@ -14,6 +16,11 @@ function getLocalStorage() {
 }
 
 export function readStoredUserRole(defaultRole: UserRole = "doctor"): UserRole {
+  const cognitoClaims = getStoredCognitoClaims();
+  if (cognitoClaims) {
+    return cognitoClaims.role;
+  }
+
   const storage = getLocalStorage();
   if (!storage) return defaultRole;
 
@@ -36,6 +43,11 @@ export function writeStoredUserRole(role: UserRole) {
 }
 
 export function readStoredAuthSession(defaultValue = false): boolean {
+  const cognitoToken = getStoredCognitoToken();
+  if (cognitoToken) {
+    return true;
+  }
+
   const storage = getLocalStorage();
   if (!storage) return defaultValue;
 
@@ -47,6 +59,10 @@ export function readStoredAuthSession(defaultValue = false): boolean {
 }
 
 export function writeStoredAuthSession(signedIn: boolean) {
+  if (!signedIn) {
+    clearCognitoTokens();
+  }
+
   const storage = getLocalStorage();
   if (!storage) return;
 

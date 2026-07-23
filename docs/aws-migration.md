@@ -32,8 +32,10 @@ This repository tracks the phased migration of Lumina into an AWS-native SaaS ar
 3. Phase 3 - Cognito auth + backend trust fix
    - Replace Clerk with Cognito Hosted UI.
    - Stop trusting browser-sent `x-lumina-user-id` and `x-lumina-role` headers.
-   - Enforce roles from Cognito JWT claims.
-   - Status: next.
+   - Enforce roles from Cognito JWT claims (`sub` for user ID, `cognito:groups` for role).
+   - Documented Cognito groups: `doctor`, `patient`.
+   - Local fallback gated behind `LUMINA_AUTH_MODE=local`.
+   - Status: complete.
 
 4. Phase 4 - AWS persistence
    - Move app data from local SQLite/localStorage to DynamoDB.

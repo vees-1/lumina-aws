@@ -7,6 +7,7 @@ import { ChevronDown, Check, Menu, X, Globe, LogOut, UserCircle } from "lucide-r
 import { getApiHealth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { readStoredAuthSession, readStoredUserRole, writeStoredAuthSession } from "@/lib/user-role";
+import { getCognitoAuthUrls, handleCognitoCallback, isCognitoConfigured } from "@/lib/cognito-auth";
 
 import { useTranslations, useLocale } from "next-intl";
 
@@ -222,7 +223,12 @@ export function Nav({ transparent = false }: { transparent?: boolean } = {}) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const toLocalePath = useLocalePath();
   const [storedRole] = useState<"doctor" | "patient">(() => readStoredUserRole());
-  const [isSignedIn, setIsSignedIn] = useState(() => readStoredAuthSession(false));
+  const [isSignedIn, setIsSignedIn] = useState(() => {
+    if (typeof window !== "undefined" && handleCognitoCallback()) {
+      return true;
+    }
+    return readStoredAuthSession(false);
+  });
   const role = storedRole;
   const workspaceHref = role === "patient" ? "/patient" : "/dashboard";
   const activeLocale = useLocale();
@@ -267,7 +273,12 @@ export function Nav({ transparent = false }: { transparent?: boolean } = {}) {
   function signOut() {
     writeStoredAuthSession(false);
     setIsSignedIn(false);
-    router.push(toLocalePath("/sign-in"));
+    if (isCognitoConfigured()) {
+      const { signOutUrl } = getCognitoAuthUrls();
+      window.location.assign(signOutUrl);
+    } else {
+      router.push(toLocalePath("/sign-in"));
+    }
   }
 
   const navLink = "inline-flex h-10 items-center text-[13.5px] font-normal text-[#4A5568] transition-colors hover:text-[#0D1B2A]";

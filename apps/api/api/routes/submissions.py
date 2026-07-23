@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from api.app_db import UPLOAD_DIR
 from api.app_models import ClinicalCase, DoctorRequestMessage, PatientSubmission
+from api.auth import get_current_actor
 
 router = APIRouter(tags=["submissions"])
 
@@ -20,11 +21,7 @@ def _now_ms() -> int:
 
 
 def _actor(request: Request) -> tuple[str, str]:
-    user_id = request.headers.get("x-lumina-user-id", "").strip()
-    role = request.headers.get("x-lumina-role", "").strip()
-    if not user_id or role not in {"doctor", "patient"}:
-        raise HTTPException(status_code=401, detail="Missing Lumina actor headers")
-    return user_id, role
+    return get_current_actor(request)
 
 
 def _submission_payload(

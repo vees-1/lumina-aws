@@ -13,6 +13,7 @@ dependencies = [
     "lxml>=6.1.0",
     "pillow>=12.2.0",
     "pyhpo>=4.0.0",
+    "pyjwt[crypto]>=2.8.0",
     "pytesseract>=0.3.13",
     "pypdf>=6.4.0",
     "python-dotenv>=1.2.2",
@@ -43,6 +44,9 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 ignore = ["E501"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [tool.uv.sources]
 ingest = { path = "../../packages/ingest" }
