@@ -29,9 +29,21 @@ resource "aws_cognito_user_pool_client" "client" {
   allowed_oauth_flows                  = ["implicit", "code"]
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_scopes                 = ["email", "openid", "profile"]
-  callback_urls                        = ["https://localhost:3000/en/sign-in"]
-  logout_urls                          = ["https://localhost:3000/en/sign-in"]
-  supported_identity_providers         = ["COGNITO"]
+  callback_urls = [
+    "https://d124bi3e327i7a.cloudfront.net/en/sign-in",
+    "https://d124bi3e327i7a.cloudfront.net/en",
+    "https://d124bi3e327i7a.cloudfront.net",
+    "http://localhost:3000/en/sign-in",
+    "http://localhost:3000/en"
+  ]
+  logout_urls = [
+    "https://d124bi3e327i7a.cloudfront.net/en/sign-in",
+    "https://d124bi3e327i7a.cloudfront.net/en",
+    "https://d124bi3e327i7a.cloudfront.net",
+    "http://localhost:3000/en/sign-in",
+    "http://localhost:3000/en"
+  ]
+  supported_identity_providers = ["COGNITO"]
 }
 
 resource "aws_cognito_user_group" "doctor" {

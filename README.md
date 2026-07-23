@@ -4,13 +4,24 @@
 
 **Doctor-reviewed rare disease triage, phenotype scoring, and patient-safe referral generation on an AWS-native serverless architecture.**
 
+[![Live Web App](https://img.shields.io/badge/Live%20App-CloudFront-blue?style=flat-square&logo=amazon-cloudfront)](https://d124bi3e327i7a.cloudfront.net/en)
+[![API Gateway](https://img.shields.io/badge/API-AWS%20API%20Gateway-orange?style=flat-square&logo=amazon-apigateway)](https://twfg22gs48.execute-api.us-east-1.amazonaws.com/health)
 [![AWS Architecture](https://img.shields.io/badge/AWS-Serverless-orange?style=flat-square&logo=amazon-aws)](docs/aws-architecture.md)
 [![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?style=flat-square&logo=terraform)](#infrastructure--terraform)
 [![Auth](https://img.shields.io/badge/Auth-Amazon%20Cognito-FF9900?style=flat-square&logo=amazoncognito)](#security--authentication)
-[![AI Provider](https://img.shields.io/badge/AI-Amazon%20Bedrock-blue?style=flat-square&logo=amazonaws)](#ai-provider-abstraction)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#)
 
 </div>
+
+---
+
+## Live AWS Deployment Endpoints
+
+| Component | Live Deployed Endpoint |
+| :--- | :--- |
+| **Web SPA Application** | [https://d124bi3e327i7a.cloudfront.net/en](https://d124bi3e327i7a.cloudfront.net/en) |
+| **API Gateway Backend** | [https://twfg22gs48.execute-api.us-east-1.amazonaws.com/health](https://twfg22gs48.execute-api.us-east-1.amazonaws.com/health) |
+| **Cognito Hosted UI Auth** | `https://lumina-app-prod-auth.auth.us-east-1.amazoncognito.com` |
+| **AWS Region** | `us-east-1` |
 
 ---
 
