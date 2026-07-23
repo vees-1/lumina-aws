@@ -1,45 +1,86 @@
-# Lumina Rare Disease SaaS — End-to-End System Architecture
+# Lumina SaaS — AWS Enterprise Architecture
 
-## How Lumina Works: 4-Stage Functional Workflow
+## Architectural Data & Request Flow
 
 ```mermaid
-flowchart LR
-    subgraph Stage1 ["Stage 1: Patient Intake & Evidence Collection"]
-        P["Patient"] -->|1. Sign in via Cognito| WebSPA["Next.js Static Export SPA"]
-        WebSPA -->|2. Upload Notes / Photos / Labs / Genetics| S3Private["Private S3 Uploads (Presigned URLs)"]
-        WebSPA -->|3. Save Submission| DDB1[("DynamoDB (State: doctor_review_pending)")]
+graph TB
+    subgraph Client ["Client Layer"]
+        Users["Users (Doctors / Patients)"]
+        Browser["Next.js Static Export SPA (Client Browser)"]
     end
 
-    subgraph Stage2 ["Stage 2: Async AI Extraction & Disease Scoring"]
-        DDB1 -->|4. Queue Job| SQS["Amazon SQS Queue"]
-        SQS -->|5. Trigger Worker| Worker["Lambda Worker"]
-        Worker -->|6. Extract Phenotypes| Bedrock["Amazon Bedrock AI Engine"]
-        Worker -->|7. Match Reference Graph| ReferenceDB[("Orphanet / HPO Reference Graph")]
-        Worker -->|8. Rank Candidate Diseases| DDB2[("DynamoDB (Save HPO & Rankings)")]
+    subgraph FrontEnd ["User & Front-End Layer"]
+        CloudFront["Amazon CloudFront CDN"]
+        S3Web["Amazon S3 (Static Web Bucket)"]
     end
 
-    subgraph Stage3 ["Stage 3: Clinician Review & Verification"]
-        Doc["Clinician / Doctor"] -->|9. Review Queue| DocDash["Clinician Dashboard"]
-        DocDash -->|10. Accept / Edit / Reject HPO Terms| HPOQueue["HPO Approval Queue"]
-        DocDash -->|11. Generate Referral Letter| AIProvider["AI Letter Generator"]
-        DocDash -->|12. Release Report| DDB3[("DynamoDB (State: released_to_patient)")]
+    subgraph Identity ["Authentication & Identity Layer"]
+        CognitoUI["Amazon Cognito Hosted UI"]
+        CognitoPool["Amazon Cognito User Pool (Groups: doctor | patient)"]
     end
 
-    subgraph Stage4 ["Stage 4: Released Patient Report"]
-        P -->|13. View Summary| PatientDash["Patient Portal"]
-        PatientDash -->|14. Read Report & Recommendation| Report["Plain-Language Summary & Visit Guide"]
+    subgraph Compute ["API & Compute Layer"]
+        APIGateway["Amazon API Gateway (HTTP API)"]
+        LambdaAPI["AWS Lambda (FastAPI API Handler)"]
     end
+
+    subgraph Storage ["Data & Storage Layer"]
+        DynamoDB[("Amazon DynamoDB (Single-Table Design: PK, SK, GSI1, GSI2)")]
+        S3Uploads["Amazon S3 (Private Uploads Bucket)"]
+        RefSQLite[("Read-Only HPO / Orphanet SQLite Dataset")]
+    end
+
+    subgraph AsyncAI ["Asynchronous Processing & AI Layer"]
+        SQS["Amazon SQS (Jobs Queue + DLQ)"]
+        LambdaWorker["AWS Lambda (Worker Handler)"]
+        Bedrock["Amazon Bedrock (Claude 3 Haiku / Nova Micro)"]
+    end
+
+    subgraph Observability ["Observability, Security & Cost Guardrails"]
+        OIDC["AWS IAM OIDC (GitHub Actions Deploy)"]
+        CloudWatch["Amazon CloudWatch (7-Day Log Retention)"]
+        Budgets["AWS Budgets ($5/Month Alert Limit)"]
+    end
+
+    %% Data Flow Sequence
+    Users -->|1. Request Static Web App| CloudFront
+    CloudFront -->|OAC Signed Request| S3Web
+    Users -->|2. Authenticate Sign-in| CognitoUI
+    CognitoUI -->|Issues RS256 JWT Token| Browser
+
+    Browser -->|3. API Request with JWT Bearer Token| APIGateway
+    APIGateway -->|4. Forwards to API Handler| LambdaAPI
+    LambdaAPI -->|5. Verify Token & Enforce Group RBAC| CognitoPool
+
+    LambdaAPI -->|6. CRUD Operations & State Management| DynamoDB
+    LambdaAPI -->|7. Generate Presigned Upload/Download URLs| S3Uploads
+    LambdaAPI -->|8. Query HPO Reference Ontology| RefSQLite
+
+    LambdaAPI -->|9. Enqueue Async Extraction Job| SQS
+    SQS -->|10. Trigger Worker Message| LambdaWorker
+    LambdaWorker -->|11. Execute AI Phenotype Extraction| Bedrock
+    LambdaWorker -->|12. Write Results & Update Job Status| DynamoDB
+
+    LambdaAPI -.->|Log Traces| CloudWatch
+    LambdaWorker -.->|Log Traces| CloudWatch
+    OIDC -.->|Deploy Infrastructure| CloudFront
 ```
 
-## AWS Services Mapped to Lumina Features
+## AWS Component Specifications
 
-| Lumina Feature | Functional Purpose | AWS Serverless Backend Component |
+| Architecture Layer | AWS Service | Technical Role & Specification |
 | :--- | :--- | :--- |
-| **Patient Portal & Intake Form** | Static web interface for patient intake, evidence upload, and status tracking. | **CloudFront + S3 (Web Bucket)** hosting static Next.js export assets. |
-| **Secure Authentication** | Role-based login (`doctor` vs `patient`) with JWT token verification. | **Amazon Cognito Hosted UI & User Pools** issuing RS256 JWT tokens. |
-| **Private Evidence Storage** | Direct browser-to-S3 upload for clinical notes, photos, lab reports, and VCF files. | **Amazon S3 (Uploads Bucket)** via temporary Presigned Put/Get URLs. |
-| **Submission & Case Records** | Single-table persistence for submissions, message history, and case evaluations. | **Amazon DynamoDB** (`lumina-app`) with GSIs for patient ownership & review status. |
-| **Background AI Processing** | Decoupled background queue for heavy document processing and scoring tasks. | **Amazon SQS Queue + Lambda Worker** running background processing. |
-| **Phenotype & GenAI Extraction** | Extracts structured HPO terms and generates clinical referral letters. | **Amazon Bedrock** (Claude 3 Haiku / Nova Micro) with $0 `DEMO` fallback. |
-| **Rare Disease Scoring Engine** | Ranks 6,000+ rare diseases against patient's extracted phenotypic profile. | **AWS Lambda + Read-Only Orphanet/HPO SQLite** graph matching engine. |
-| **Clinician Referral Letter Generator** | Streamed markdown referral letter generation for medical genetics specialists. | **FastAPI on AWS Lambda** with AI provider abstraction. |
+| **Front-End & CDN** | **Amazon CloudFront** | Global edge distribution serving static web bundle with Origin Access Control (OAC). |
+| | **Amazon S3 (Web Bucket)** | Private S3 bucket hosting Next.js static export bundle (`apps/web/out`). |
+| **Authentication** | **Amazon Cognito** | Hosted UI and User Pool managing OAuth flow and issuing RS256 signed JWT tokens with `doctor` and `patient` groups. |
+| **API & Compute** | **Amazon API Gateway** | HTTP API Gateway with CORS support routing requests to serverless compute. |
+| | **AWS Lambda (FastAPI)** | Serverless Python container executing FastAPI API logic, validating JWT claims, and managing submission lifecycle. |
+| **Data & Storage** | **Amazon DynamoDB** | Single-table DynamoDB (`lumina-app`) storing Users, Submissions, Messages, Cases, and Jobs using `PK`, `SK`, `GSI1`, `GSI2`. |
+| | **Amazon S3 (Uploads)** | Private bucket for patient photos and lab reports accessed exclusively via time-limited presigned URLs. |
+| | **SQLite Reference DB** | Read-only Orphanet and HPO medical ontology graph packaged directly within Lambda environment. |
+| **Async & AI** | **Amazon SQS** | Asynchronous job queue for background document processing + Dead Letter Queue (DLQ). |
+| | **AWS Lambda (Worker)** | Event-driven SQS worker executing AI extraction, HPO validation, and scoring tasks idempotently. |
+| | **Amazon Bedrock** | GenAI foundation model runtime (Claude 3 Haiku / Nova Micro) with a $0 fallback `DEMO` mode default. |
+| **Governance & Security**| **AWS IAM & OIDC** | Least-privilege execution roles and keyless GitHub Actions OIDC deployment role. |
+| | **Amazon CloudWatch** | Serverless log aggregation with 7-day retention to prevent storage bloat. |
+| | **AWS Budgets** | Hard cost alert triggering email notifications if spending exceeds $5/month. |
