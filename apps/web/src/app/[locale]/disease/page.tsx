@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 import { DashboardNav } from "@/components/nav";
@@ -82,6 +83,14 @@ function FreqBadge({ label }: { label: string }) {
   );
 }
 
+export default function DiseaseDetailPage() {
+  return (
+    <Suspense fallback={null}>
+      <DiseaseDetailContent />
+    </Suspense>
+  );
+}
+
 function SkeletonBlock({ className }: { className?: string }) {
   return <div className={`shimmer rounded-xl ${className ?? ""}`} />;
 }
@@ -128,11 +137,12 @@ function ErrorState({ orpha, locale }: { orpha: string; locale: string }) {
   );
 }
 
-export default function DiseaseDetailPage({ params }: { params: Promise<{ orpha: string }> }) {
+function DiseaseDetailContent() {
   const t = useTranslations("disease");
   const locale = useLocale();
   const messages = useMessages() as HpoLabelMessages;
-  const { orpha } = use(params);
+  const searchParams = useSearchParams();
+  const orpha = searchParams.get("orpha") ?? "";
   const [disease, setDisease] = useState<DiseaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -140,6 +150,11 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ orpha:
   useEffect(() => {
     let cancelled = false;
     async function fetchDisease() {
+      if (!orpha) {
+        setError(true);
+        setLoading(false);
+        return;
+      }
       try {
         const res = await fetch(`${API}/disease/${orpha}?lang=${encodeURIComponent(locale)}`);
         if (!res.ok) {

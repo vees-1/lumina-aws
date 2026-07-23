@@ -155,7 +155,7 @@ export default function CasesPage() {
                       return (
                         <tr key={item.id} className="transition-colors hover:bg-[#F7F8FA]">
                           <td className="px-5 py-4">
-                            <Link href={`/${locale}/case/${item.id}`} className="font-normal text-[#0AAFCE] hover:underline">
+                            <Link href={`/${locale}/case?id=${encodeURIComponent(item.id)}`} className="font-normal text-[#0AAFCE] hover:underline">
                               {item.id.slice(0, 8)}
                             </Link>
                           </td>

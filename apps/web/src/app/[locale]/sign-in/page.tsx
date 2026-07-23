@@ -1,6 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import { Stethoscope, User } from "lucide-react";
-import { ClerkAuthForm } from "@/components/auth/clerk-auth-form";
+import { Suspense } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
+import { StaticAuthForm } from "@/components/auth/static-auth-form";
 import { type UserRole } from "@/lib/user-role";
 
 function Logo() {
@@ -19,18 +24,12 @@ function normalizeRole(role: unknown): UserRole | null {
   return role === "doctor" || role === "patient" ? role : null;
 }
 
-export default async function SignInPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ locale: string }>;
-  searchParams: Promise<{ role?: string }>;
-}) {
-  const { locale } = await params;
-  const { role: roleParam } = await searchParams;
+function SignInContent() {
+  const locale = useLocale();
+  const searchParams = useSearchParams();
+  const roleParam = searchParams.get("role");
   const role = normalizeRole(roleParam);
-  const messages = (await import(`@/messages/${locale}.json`)).default;
-  const t = (key: string) => messages.auth[key];
+  const t = useTranslations("auth");
 
   return (
     <div className="min-h-screen bg-background">
@@ -98,12 +97,20 @@ export default async function SignInPage({
                     {t("changeRole")}
                   </Link>
                 </div>
-                <ClerkAuthForm mode="sign-in" locale={locale} role={role} />
+                <StaticAuthForm mode="sign-in" locale={locale} role={role} />
               </div>
             )}
           </div>
         </div>
       </main>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignInContent />
+    </Suspense>
   );
 }

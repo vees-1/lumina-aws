@@ -1,8 +1,10 @@
-import { ClerkProvider } from "@clerk/nextjs";
 import { NextIntlClientProvider } from "next-intl";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
-import { getClerkLocalization } from "@/lib/clerk-localization";
+
+export function generateStaticParams() {
+  return routing.locales.map((locale) => ({ locale }));
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -26,14 +28,8 @@ export default async function LocaleLayout({
   const messages = (await import(`@/messages/${locale}.json`)).default;
   const hpoLabels = (await import(`@/hpo-labels/${locale}.json`)).default;
   return (
-    <ClerkProvider
-      localization={getClerkLocalization(locale)}
-      signInForceRedirectUrl={`/${locale}/dashboard`}
-      signUpForceRedirectUrl={`/${locale}/dashboard`}
-    >
-      <NextIntlClientProvider locale={locale} messages={{ ...messages, hpoLabels }} now={new Date()} timeZone="UTC">
-        {children}
-      </NextIntlClientProvider>
-    </ClerkProvider>
+    <NextIntlClientProvider locale={locale} messages={{ ...messages, hpoLabels }} now={new Date()} timeZone="UTC">
+      {children}
+    </NextIntlClientProvider>
   );
 }

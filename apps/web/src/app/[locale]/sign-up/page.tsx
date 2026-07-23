@@ -1,6 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import { Stethoscope, User } from "lucide-react";
-import { ClerkAuthForm } from "@/components/auth/clerk-auth-form";
+import { Suspense } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
+import { StaticAuthForm } from "@/components/auth/static-auth-form";
 import { type UserRole } from "@/lib/user-role";
 
 function Logo() {
@@ -19,27 +24,13 @@ function normalizeRole(role: unknown): UserRole | null {
   return role === "doctor" || role === "patient" ? role : null;
 }
 
-export default async function SignUpPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ locale: string }>;
-  searchParams: Promise<{ role?: string }>;
-}) {
-  const { locale } = await params;
-  const { role: roleParam } = await searchParams;
+function SignUpContent() {
+  const locale = useLocale();
+  const searchParams = useSearchParams();
+  const roleParam = searchParams.get("role");
   const role = normalizeRole(roleParam);
-  const messages = (await import(`@/messages/${locale}.json`)).default;
-  const t = (key: string, values?: Record<string, string>) => {
-    let message = messages.auth[key] as string;
-    if (values) {
-      for (const [name, value] of Object.entries(values)) {
-        message = message.replaceAll(`{${name}}`, value);
-      }
-    }
-    return message;
-  };
-  const tc = (key: string) => messages.common[key];
+  const t = useTranslations("auth");
+  const tc = useTranslations("common");
 
   return (
     <div className="min-h-screen bg-background">
@@ -109,12 +100,20 @@ export default async function SignUpPage({
                     {t("changeRole")}
                   </Link>
                 </div>
-                <ClerkAuthForm mode="sign-up" locale={locale} role={role} />
+                <StaticAuthForm mode="sign-up" locale={locale} role={role} />
               </div>
             )}
           </div>
         </div>
       </main>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignUpContent />
+    </Suspense>
   );
 }

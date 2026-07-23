@@ -20,16 +20,20 @@ This repository tracks the phased migration of Lumina into an AWS-native SaaS ar
    - Create the private `vees-1/lumina-aws` repository.
    - Push a fresh baseline commit without old git history.
    - Add migration notes and validate the existing baseline.
+   - Status: complete.
 
 2. Phase 2 - Static AWS frontend
    - Convert the Next.js app to static export.
    - Prepare S3 and CloudFront compatible routing.
    - Remove runtime Next.js assumptions that block static hosting.
+   - Status: complete after commit `chore: make frontend static export ready`.
+   - Note: phase 2 uses a temporary local role/session shim so the frontend can be exported as static files. This is not secure auth and must be replaced by Cognito in phase 3.
 
 3. Phase 3 - Cognito auth + backend trust fix
    - Replace Clerk with Cognito Hosted UI.
    - Stop trusting browser-sent `x-lumina-user-id` and `x-lumina-role` headers.
    - Enforce roles from Cognito JWT claims.
+   - Status: next.
 
 4. Phase 4 - AWS persistence
    - Move app data from local SQLite/localStorage to DynamoDB.
@@ -49,4 +53,4 @@ This repository tracks the phased migration of Lumina into an AWS-native SaaS ar
 
 - No blocking baseline failures found in phase 1.
 - `pnpm --filter web lint` passes with existing warnings for React hook dependencies, unused `eslint-disable` comments, and `<img>` usage.
-- `pnpm --filter web build` passes with an existing Next.js warning about an invalid `experimental.turbo` config key.
+- `pnpm --filter web build` passes static export in phase 2. The build still logs non-blocking i18n formatting/missing-message warnings for several marketing pages and a Next.js `experimental.turbo` warning even though the checked-in `next.config.ts` no longer defines that key.

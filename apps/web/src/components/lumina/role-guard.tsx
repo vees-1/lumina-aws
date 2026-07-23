@@ -1,37 +1,21 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { readStoredUserRole } from "@/lib/user-role";
+import { readStoredAuthSession, readStoredUserRole } from "@/lib/user-role";
 
 export function RoleGuard({ allowed, redirectTo, children }: { allowed: string[], redirectTo: string, children: React.ReactNode }) {
-  const { user, isLoaded } = useUser();
   const router = useRouter();
+  const role = readStoredUserRole();
+  const isSignedIn = readStoredAuthSession(true);
 
   useEffect(() => {
-    if (isLoaded) {
-      let role = user?.publicMetadata?.role as string;
-      if (!role && typeof window !== "undefined") {
-        role = readStoredUserRole();
-      }
-      
-      if (!role || !allowed.includes(role)) {
-        router.push(redirectTo);
-      }
+    if (!isSignedIn || !allowed.includes(role)) {
+      router.push(redirectTo);
     }
-  }, [user, isLoaded, allowed, redirectTo, router]);
+  }, [allowed, isSignedIn, redirectTo, role, router]);
 
-  if (!isLoaded) {
-    return null;
-  }
-
-  let role = user?.publicMetadata?.role as string;
-  if (!role && typeof window !== "undefined") {
-    role = readStoredUserRole();
-  }
-
-  if (!role || !allowed.includes(role)) {
+  if (!isSignedIn || !allowed.includes(role)) {
     return null;
   }
 

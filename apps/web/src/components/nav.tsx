@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, Check, Menu, X, Globe } from "lucide-react";
-import { useAuth, useUser, UserButton } from "@clerk/nextjs";
+import { ChevronDown, Check, Menu, X, Globe, LogOut, UserCircle } from "lucide-react";
 import { getApiHealth } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { readStoredUserRole } from "@/lib/user-role";
+import { readStoredAuthSession, readStoredUserRole, writeStoredAuthSession } from "@/lib/user-role";
 
 import { useTranslations, useLocale } from "next-intl";
 
@@ -218,14 +217,13 @@ function MobileLangPicker({
 export function Nav({ transparent = false }: { transparent?: boolean } = {}) {
   void transparent;
   const t = useTranslations("nav");
-  const { isSignedIn } = useAuth();
-  const { user } = useUser();
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const toLocalePath = useLocalePath();
   const [storedRole] = useState<"doctor" | "patient">(() => readStoredUserRole());
-  const role = typeof user?.publicMetadata?.role === "string" ? user.publicMetadata.role : storedRole;
+  const [isSignedIn, setIsSignedIn] = useState(() => readStoredAuthSession(false));
+  const role = storedRole;
   const workspaceHref = role === "patient" ? "/patient" : "/dashboard";
   const activeLocale = useLocale();
   const [apiReady, setApiReady] = useState<boolean | null>(null);
@@ -264,6 +262,12 @@ export function Nav({ transparent = false }: { transparent?: boolean } = {}) {
     const next = hasLocale ? `/${code}/${segments.slice(2).join("/")}` : `/${code}${pathname}`;
     router.push(next.replace(/\/$/, "") || `/${code}`);
     setMobileOpen(false);
+  }
+
+  function signOut() {
+    writeStoredAuthSession(false);
+    setIsSignedIn(false);
+    router.push(toLocalePath("/sign-in"));
   }
 
   const navLink = "inline-flex h-10 items-center text-[13.5px] font-normal text-[#4A5568] transition-colors hover:text-[#0D1B2A]";
@@ -326,7 +330,14 @@ export function Nav({ transparent = false }: { transparent?: boolean } = {}) {
                 />
                 {apiReady === false ? t("apiStatusUnavailable") : t("apiStatusReady")}
               </Link>
-              <UserButton />
+              <button
+                type="button"
+                onClick={signOut}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#DDE3ED] text-[#4A5568] transition-colors hover:border-[#0D1B2A] hover:text-[#0D1B2A]"
+                aria-label="Sign out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
             </div>
           )}
         </div>
@@ -349,7 +360,14 @@ export function Nav({ transparent = false }: { transparent?: boolean } = {}) {
                 )}
                 title={apiReady === false ? t("apiStatusUnavailable") : t("apiStatusReady")}
               />
-              <UserButton />
+              <button
+                type="button"
+                onClick={signOut}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#DDE3ED] text-[#4A5568]"
+                aria-label="Sign out"
+              >
+                <UserCircle className="h-4 w-4" />
+              </button>
             </div>
           )}
 

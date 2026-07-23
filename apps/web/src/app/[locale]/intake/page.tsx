@@ -1,6 +1,16 @@
-import { redirect } from "next/navigation";
+"use client";
 
-export default async function IntakeRedirect({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
-  redirect(`/${locale}/new-case`);
+import { useLocale } from "next-intl";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+export default function IntakeRedirect() {
+  const locale = useLocale();
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace(`/${locale}/new-case`);
+  }, [locale, router]);
+
+  return null;
 }

@@ -3,11 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
 import { Check, FileText, FlaskConical, Image as ImageIcon, PencilLine, ShieldCheck, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslations, useLocale } from "next-intl";
-import { readStoredUserRole } from "@/lib/user-role";
+import { readStoredAuthSession, readStoredUserRole } from "@/lib/user-role";
 
 /* -- Logo -------------------------------------------------------------------- */
 export function LuminaLogo({ className, footer = false }: { className?: string; footer?: boolean }) {
@@ -42,13 +41,12 @@ export function MarketingFooter() {
   const t = useTranslations("nav");
   const tc = useTranslations("common");
   const tl = useTranslations("landing");
-  const { isSignedIn } = useAuth();
-  const { user } = useUser();
   const locale = useLocale();
   const brandName = tc("brandName");
   const [storedRole] = useState<"doctor" | "patient">(() => readStoredUserRole());
+  const [isSignedIn] = useState(() => readStoredAuthSession(false));
 
-  const role = user?.publicMetadata?.role === "patient" ? "patient" : user?.publicMetadata?.role === "doctor" ? "doctor" : storedRole;
+  const role = storedRole;
 
   const clinicalLinks =
     isSignedIn && role === "patient"

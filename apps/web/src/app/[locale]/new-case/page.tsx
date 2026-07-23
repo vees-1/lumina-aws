@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -251,6 +251,14 @@ function ProgressStep({ label, active, done }: { label: string; active: boolean;
 }
 
 export default function IntakePage() {
+  return (
+    <Suspense fallback={null}>
+      <IntakePageContent />
+    </Suspense>
+  );
+}
+
+function IntakePageContent() {
   const t = useTranslations("intake");
   const tCommon = useTranslations("common");
   const locale = useLocale();
@@ -472,7 +480,7 @@ export default function IntakePage() {
           patientContext: { patientName: patientName || undefined, age: age || undefined, sex: sex || undefined },
         };
         updateCaseInStorage(addToId, updatedCase);
-        router.push(`/${locale}/case/${addToId}`);
+        router.push(`/${locale}/case?id=${encodeURIComponent(addToId)}`);
       } else {
         const caseId = uuid();
         const caseData = {
@@ -499,7 +507,7 @@ export default function IntakePage() {
           }
         }
         saveCaseToStorage(caseData);
-        router.push(`/${locale}/case/${caseId}`);
+        router.push(`/${locale}/case?id=${encodeURIComponent(caseId)}`);
       }
     } catch (err) {
       console.error(err);

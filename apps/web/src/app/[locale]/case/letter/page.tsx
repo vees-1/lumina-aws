@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useLocale, useTranslations } from "next-intl";
 import { Copy, Download, Edit3, Check, ArrowLeft, Printer, RefreshCw, Loader2 } from "lucide-react";
@@ -33,11 +34,20 @@ function MarkdownRenderer({ content }: { content: string }) {
   );
 }
 
-export default function LetterPage({ params }: { params: Promise<{ id: string }> }) {
+export default function LetterPage() {
+  return (
+    <Suspense fallback={null}>
+      <LetterPageContent />
+    </Suspense>
+  );
+}
+
+function LetterPageContent() {
   const t = useTranslations("letter");
   const tc = useTranslations("case");
   const locale = useLocale();
-  const { id } = use(params);
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id") ?? "";
   const [caseData] = useState<CaseData | null>(() => getCaseById(id));
   const [letter, setLetter] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -194,7 +204,7 @@ export default function LetterPage({ params }: { params: Promise<{ id: string }>
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
             <Link 
-              href={`/${locale}/case/${id}`}
+              href={`/${locale}/case?id=${encodeURIComponent(id)}`}
               className="w-9 h-9 rounded-full bg-white border border-black/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-black/10 transition-all shadow-sm"
             >
               <ArrowLeft className="w-4 h-4" />

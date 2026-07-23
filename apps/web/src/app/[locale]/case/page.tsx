@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { motion, useInView, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useTranslations, useLocale, useMessages } from "next-intl";
@@ -97,6 +98,14 @@ function ConfidenceTooltip({ confidence, modalities, children }: { confidence: n
         </span>
       )}
     </span>
+  );
+}
+
+export default function CasePage() {
+  return (
+    <Suspense fallback={null}>
+      <CasePageContent />
+    </Suspense>
   );
 }
 
@@ -215,7 +224,7 @@ function RankCard({ result, rank, delay }: { result: RankResult; rank: number; d
               {formatNumber(locale, Math.round(result.confidence))}%
             </span>
           </div>
-          <Link href={`/${locale}/disease/${result.orpha_code}`} className="mb-3 inline-block text-[12px] font-normal text-[#0AAFCE] transition-colors hover:text-[#0D1B2A]">
+          <Link href={`/${locale}/disease?orpha=${encodeURIComponent(result.orpha_code)}`} className="mb-3 inline-block text-[12px] font-normal text-[#0AAFCE] transition-colors hover:text-[#0D1B2A]">
             ORPHA:{formatNumber(locale, result.orpha_code)} ↗
           </Link>
           <ConfidenceBar value={result.confidence} color={color} delay={delay + 0.2} />
@@ -723,11 +732,12 @@ function LetterView({
 
 // -- Page ----------------------------------------------------------------------
 
-export default function CasePage({ params }: { params: Promise<{ id: string }> }) {
+function CasePageContent() {
   const t = useTranslations("case");
   const locale = useLocale();
   const messages = useMessages() as HpoLabelMessages;
-  const { id } = use(params);
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id") ?? "";
   const actor = useApiActor();
   const [caseData, setCaseData] = useState<CaseData | null>(() => getCaseById(id));
   const [letter, setLetter] = useState(() => getCaseById(id)?.referralLetterDraft ?? "");
@@ -748,7 +758,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [moreDataMessage, setMoreDataMessage] = useState("");
 
   useEffect(() => {
-    if (!actor) return;
+    if (!actor || !id) return;
     getCaseRemote(id, actor)
       .then((remoteCase) => {
         setCaseData(remoteCase);
