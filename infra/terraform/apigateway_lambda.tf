@@ -82,6 +82,69 @@ resource "aws_cloudwatch_log_group" "worker_logs" {
   retention_in_days = 7
 }
 
+# --- Dummy Zip Package for Lambda Initialization ---
+
+data "archive_file" "dummy_lambda" {
+  type        = "zip"
+  output_path = "${path.module}/dummy_lambda.zip"
+
+  source {
+    content  = "def handler(event, context):\n    return {'statusCode': 200, 'body': 'Lumina API'}\n"
+    filename = "main.py"
+  }
+}
+
+resource "aws_lambda_function" "api" {
+  function_name    = "${var.app_name}-${var.environment}-api"
+  role             = aws_iam_role.lambda_exec.arn
+  handler          = "main.handler"
+  runtime          = "python3.11"
+  filename         = data.archive_file.dummy_lambda.output_path
+  source_code_hash = data.archive_file.dummy_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      LUMINA_DYNAMODB_TABLE = aws_dynamodb_table.table.name
+      LUMINA_S3_BUCKET      = aws_s3_bucket.uploads.id
+      LUMINA_SQS_QUEUE_URL  = aws_sqs_queue.jobs.id
+      LUMINA_AI_PROVIDER    = "demo"
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [filename, source_code_hash]
+  }
+}
+
+resource "aws_lambda_function" "worker" {
+  function_name    = "${var.app_name}-${var.environment}-worker"
+  role             = aws_iam_role.lambda_exec.arn
+  handler          = "api.worker.lambda_handler"
+  runtime          = "python3.11"
+  filename         = data.archive_file.dummy_lambda.output_path
+  source_code_hash = data.archive_file.dummy_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      LUMINA_DYNAMODB_TABLE = aws_dynamodb_table.table.name
+      LUMINA_S3_BUCKET      = aws_s3_bucket.uploads.id
+      LUMINA_AI_PROVIDER    = "demo"
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [filename, source_code_hash]
+  }
+}
+
+resource "aws_lambda_event_source_mapping" "sqs_worker" {
+  event_source_arn = aws_sqs_queue.jobs.arn
+  function_name    = aws_lambda_function.worker.arn
+  batch_size       = 5
+}
+
+# --- API Gateway HTTP API Setup ---
+
 resource "aws_apigatewayv2_api" "http_api" {
   name          = "${var.app_name}-${var.environment}-api"
   protocol_type = "HTTP"
@@ -91,4 +154,37 @@ resource "aws_apigatewayv2_api" "http_api" {
     allow_methods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
     allow_headers = ["*"]
   }
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.http_api.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_apigatewayv2_integration" "lambda" {
+  api_id                 = aws_apigatewayv2_api.http_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.api.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "proxy" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "ANY /{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "root" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "ANY /"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_lambda_permission" "apigw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 }

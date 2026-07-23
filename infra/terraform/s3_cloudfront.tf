@@ -57,6 +57,20 @@ resource "aws_cloudfront_distribution" "cdn" {
     max_ttl                = 86400
   }
 
+  custom_error_response {
+    error_code            = 403
+    response_code         = 200
+    response_page_path    = "/en.html"
+    error_caching_min_ttl = 10
+  }
+
+  custom_error_response {
+    error_code            = 404
+    response_code         = 200
+    response_page_path    = "/en.html"
+    error_caching_min_ttl = 10
+  }
+
   restrictions {
     geo_restriction {
       restriction_type = "none"
