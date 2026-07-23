@@ -38,9 +38,11 @@ This repository tracks the phased migration of Lumina into an AWS-native SaaS ar
    - Status: complete.
 
 4. Phase 4 - AWS persistence
-   - Move app data from local SQLite/localStorage to DynamoDB.
-   - Move uploaded reports/photos to private S3 with presigned uploads.
-   - Keep Orphanet/HPO reference data as a read-only artifact, not DynamoDB records.
+   - Move app data from local SQLite/localStorage to single-table DynamoDB (`lumina-app`).
+   - Move uploaded reports/photos to private S3 bucket (`lumina-uploads-dev`) with presigned uploads.
+   - S3 key format: `tenant/default/users/{sub}/submissions/{submissionId}/{kind}/{uuid}`.
+   - Kept Orphanet/HPO reference data as packaged read-only SQLite artifact.
+   - Status: complete.
 
 5. Phase 5 - Async jobs + Bedrock adapter
    - Add SQS-backed extraction/scoring jobs.

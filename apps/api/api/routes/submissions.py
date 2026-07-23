@@ -1,17 +1,14 @@
 import json
-import shutil
 import time
-from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlmodel import Session, select
 
-from api.app_db import UPLOAD_DIR
-from api.app_models import ClinicalCase, DoctorRequestMessage, PatientSubmission
 from api.auth import get_current_actor
+from api.dynamo_repo import get_dynamo_repo
+from api.s3_storage import get_s3_storage
 
 router = APIRouter(tags=["submissions"])
 
@@ -24,78 +21,95 @@ def _actor(request: Request) -> tuple[str, str]:
     return get_current_actor(request)
 
 
-def _submission_payload(
-    row: PatientSubmission, *, include_messages: bool = False, session: Session | None = None
-) -> dict:
-    messages = []
-    if include_messages and session is not None:
-        rows = session.exec(
-            select(DoctorRequestMessage)
-            .where(DoctorRequestMessage.submission_id == row.id)
-            .order_by(DoctorRequestMessage.timestamp.desc())
-        ).all()
-        messages = [
-            {
-                "id": item.id,
-                "doctorId": item.doctor_id,
-                "message": item.message,
-                "timestamp": item.timestamp,
-            }
-            for item in rows
-        ]
-    return {
-        "id": row.id,
-        "timestamp": row.timestamp,
-        "updatedAt": row.updated_at,
-        "patientOwnerId": row.patient_owner_id,
-        "doctorReviewerId": row.doctor_reviewer_id,
-        "patientName": row.patient_name,
-        "age": row.age,
-        "sex": row.sex,
-        "notes": row.notes,
-        "photoFileName": row.photo_file_name,
-        "labFileName": row.lab_file_name,
-        "geneticEvidence": json.loads(row.genetic_evidence_json)
-        if row.genetic_evidence_json
-        else None,
-        "status": row.status,
-        "linkedCaseId": row.linked_case_id,
-        "doctorMessage": row.latest_doctor_message,
-        "patientSummary": json.loads(row.patient_summary_json)
-        if row.patient_summary_json
-        else None,
-        "releasedLetterMarkdown": row.released_letter_markdown,
-        "releasedCaseId": row.released_case_id,
-        "releaseTimestamp": row.release_timestamp,
-        "visitRecommendation": row.visit_recommendation,
-        "messages": messages,
-    }
+class PresignedUploadRequest(BaseModel):
+    kind: str  # "photo" | "lab"
+    file_name: str
+    content_type: str = "application/octet-stream"
 
 
-def _case_payload(row: ClinicalCase) -> dict:
-    payload = json.loads(row.case_json)
-    payload["id"] = row.id
-    if row.submission_id:
-        payload["sourceSubmissionId"] = row.submission_id
-    return payload
+class CompleteUploadRequest(BaseModel):
+    kind: str  # "photo" | "lab"
+    s3_key: str
+    file_name: str
+    content_type: str = "application/octet-stream"
 
 
-def _submission_upload_dir(submission_id: str) -> Path:
-    return UPLOAD_DIR / submission_id
+class RequestMoreDataBody(BaseModel):
+    message: str
 
 
-def _save_upload(
-    submission_id: str, kind: str, upload: UploadFile | None
-) -> tuple[str | None, str | None, str | None]:
-    if upload is None or not upload.filename:
-        return None, None, None
-    target_dir = _submission_upload_dir(submission_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    suffix = Path(upload.filename).suffix
-    target = target_dir / f"{kind}{suffix}"
-    with target.open("wb") as out:
-        shutil.copyfileobj(upload.file, out)
-    return upload.filename, str(target), upload.content_type
+class LinkCaseBody(BaseModel):
+    case_id: str
+
+
+class ReleaseSubmissionBody(BaseModel):
+    case_id: str
+    patient_summary: dict
+    letter_markdown: str
+    visit_recommendation: str
+
+
+class CaseBody(BaseModel):
+    case_data: dict
+    submission_id: str | None = None
+
+
+# --- Presigned Upload Routes ---
+
+
+@router.post("/submissions/{submission_id}/uploads/presigned")
+async def get_presigned_upload_url(
+    submission_id: str, body: PresignedUploadRequest, request: Request
+):
+    user_id, role = _actor(request)
+    if role != "patient":
+        raise HTTPException(status_code=403, detail="Only patients can request upload URLs")
+
+    if body.kind not in {"photo", "lab"}:
+        raise HTTPException(status_code=400, detail="Invalid upload kind")
+
+    repo = get_dynamo_repo()
+    sub = repo.get_submission(submission_id)
+    if sub and sub.get("patientOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    s3 = get_s3_storage()
+    s3_key = s3.generate_s3_key(user_id, submission_id, body.kind, body.file_name)
+    presigned = s3.create_presigned_upload(s3_key, body.content_type)
+    return {**presigned, "kind": body.kind, "file_name": body.file_name}
+
+
+@router.post("/submissions/{submission_id}/uploads/complete")
+async def complete_upload(submission_id: str, body: CompleteUploadRequest, request: Request):
+    user_id, role = _actor(request)
+    if role != "patient":
+        raise HTTPException(status_code=403, detail="Only patients can finalize uploads")
+
+    if body.kind not in {"photo", "lab"}:
+        raise HTTPException(status_code=400, detail="Invalid upload kind")
+
+    repo = get_dynamo_repo()
+    sub = repo.get_submission(submission_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if sub.get("patientOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    updates = {}
+    if body.kind == "photo":
+        updates["photoS3Key"] = body.s3_key
+        updates["photoFileName"] = body.file_name
+        updates["photoContentType"] = body.content_type
+    else:
+        updates["labS3Key"] = body.s3_key
+        updates["labFileName"] = body.file_name
+        updates["labContentType"] = body.content_type
+
+    updated = repo.update_submission(submission_id, updates)
+    return updated
+
+
+# --- Submissions CRUD ---
 
 
 @router.post("/submissions")
@@ -112,6 +126,7 @@ async def create_submission(
     user_id, role = _actor(request)
     if role != "patient":
         raise HTTPException(status_code=403, detail="Only patients can create submissions")
+
     if (
         not (notes and notes.strip())
         and photo is None
@@ -119,64 +134,75 @@ async def create_submission(
         and not (genetic_evidence and genetic_evidence.strip())
     ):
         raise HTTPException(status_code=400, detail="Submission requires evidence")
+
+    parsed_genetics = None
     if genetic_evidence:
         try:
-            json.loads(genetic_evidence)
+            parsed_genetics = json.loads(genetic_evidence)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=400, detail="Invalid genetic evidence JSON") from exc
 
     submission_id = str(uuid4())
-    photo_name, photo_path, photo_type = _save_upload(submission_id, "photo", photo)
-    lab_name, lab_path, lab_type = _save_upload(submission_id, "lab", lab)
+    s3 = get_s3_storage()
+
+    photo_s3_key, photo_name, photo_type = None, None, None
+    if photo and photo.filename:
+        photo_bytes = await photo.read()
+        photo_name = photo.filename
+        photo_type = photo.content_type or "application/octet-stream"
+        key = s3.generate_s3_key(user_id, submission_id, "photo", photo_name)
+        photo_s3_key = s3.put_object_bytes(key, photo_bytes, photo_type)
+
+    lab_s3_key, lab_name, lab_type = None, None, None
+    if lab and lab.filename:
+        lab_bytes = await lab.read()
+        lab_name = lab.filename
+        lab_type = lab.content_type or "application/octet-stream"
+        key = s3.generate_s3_key(user_id, submission_id, "lab", lab_name)
+        lab_s3_key = s3.put_object_bytes(key, lab_bytes, lab_type)
+
     now = _now_ms()
-    row = PatientSubmission(
-        id=submission_id,
-        timestamp=now,
-        updated_at=now,
-        patient_owner_id=user_id,
-        patient_name=patient_name or None,
-        age=age or None,
-        sex=sex or None,
-        notes=notes.strip() if notes else None,
-        photo_file_name=photo_name,
-        photo_path=photo_path,
-        photo_content_type=photo_type,
-        lab_file_name=lab_name,
-        lab_path=lab_path,
-        lab_content_type=lab_type,
-        genetic_evidence_json=genetic_evidence or None,
-        status="doctor_review_pending",
-    )
-    with Session(request.app.state.app_db_engine) as session:
-        session.add(row)
-        session.commit()
-        session.refresh(row)
-        return _submission_payload(row)
+    payload = {
+        "id": submission_id,
+        "timestamp": now,
+        "updatedAt": now,
+        "patientOwnerId": user_id,
+        "patientName": patient_name or None,
+        "age": age or None,
+        "sex": sex or None,
+        "notes": notes.strip() if notes else None,
+        "photoFileName": photo_name,
+        "photoS3Key": photo_s3_key,
+        "photoContentType": photo_type,
+        "labFileName": lab_name,
+        "labS3Key": lab_s3_key,
+        "labContentType": lab_type,
+        "geneticEvidence": parsed_genetics,
+        "status": "doctor_review_pending",
+    }
+
+    repo = get_dynamo_repo()
+    created = repo.create_submission(payload)
+    return created
 
 
 @router.get("/submissions")
 async def list_submissions(request: Request, status: str | None = None):
     user_id, role = _actor(request)
-    with Session(request.app.state.app_db_engine) as session:
-        statement = select(PatientSubmission)
-        if role == "patient":
-            statement = statement.where(PatientSubmission.patient_owner_id == user_id)
-        if status:
-            statement = statement.where(PatientSubmission.status == status)
-        rows = session.exec(statement.order_by(PatientSubmission.updated_at.desc())).all()
-        return [_submission_payload(row) for row in rows]
+    repo = get_dynamo_repo()
+    return repo.list_submissions(role=role, user_id=user_id, status=status)
 
 
 @router.get("/submissions/{submission_id}")
 async def get_submission(submission_id: str, request: Request):
     user_id, role = _actor(request)
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(PatientSubmission, submission_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        if role == "patient" and row.patient_owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Not allowed")
-        return _submission_payload(row, include_messages=True, session=session)
+    repo = get_dynamo_repo()
+    item = repo.get_submission(submission_id, include_messages=True)
+    if not item:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if role == "patient" and item.get("patientOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    return item
 
 
 @router.get("/submissions/{submission_id}/files/{kind}")
@@ -184,18 +210,32 @@ async def get_submission_file(submission_id: str, kind: str, request: Request):
     user_id, role = _actor(request)
     if kind not in {"photo", "lab"}:
         raise HTTPException(status_code=404, detail="File not found")
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(PatientSubmission, submission_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        if role == "patient" and row.patient_owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Not allowed")
-        path = row.photo_path if kind == "photo" else row.lab_path
-        name = row.photo_file_name if kind == "photo" else row.lab_file_name
-        content_type = row.photo_content_type if kind == "photo" else row.lab_content_type
-        if not path or not Path(path).exists():
-            raise HTTPException(status_code=404, detail="File not found")
-        return FileResponse(path, media_type=content_type, filename=name)
+
+    repo = get_dynamo_repo()
+    item = repo.get_submission(submission_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if role == "patient" and item.get("patientOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    s3_key = item.get("photoS3Key") if kind == "photo" else item.get("labS3Key")
+    filename = item.get("photoFileName") if kind == "photo" else item.get("labFileName")
+
+    if not s3_key:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    s3 = get_s3_storage()
+    try:
+        content_bytes, content_type = s3.get_object_bytes(s3_key)
+        media_type = content_type or "application/octet-stream"
+        disposition = f'inline; filename="{filename}"' if filename else "inline"
+        return Response(
+            content=content_bytes,
+            media_type=media_type,
+            headers={"Content-Disposition": disposition},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"File not found: {exc}") from exc
 
 
 @router.post("/submissions/{submission_id}/start-review")
@@ -203,21 +243,17 @@ async def start_review(submission_id: str, request: Request):
     user_id, role = _actor(request)
     if role != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors can review")
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(PatientSubmission, submission_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        row.status = "in_review"
-        row.doctor_reviewer_id = user_id
-        row.updated_at = _now_ms()
-        session.add(row)
-        session.commit()
-        session.refresh(row)
-        return _submission_payload(row)
 
+    repo = get_dynamo_repo()
+    item = repo.get_submission(submission_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Submission not found")
 
-class RequestMoreDataBody(BaseModel):
-    message: str
+    updated = repo.update_submission(
+        submission_id,
+        {"status": "in_review", "doctorReviewerId": user_id},
+    )
+    return updated
 
 
 @router.post("/submissions/{submission_id}/request-more-data")
@@ -225,51 +261,26 @@ async def request_more_data(submission_id: str, body: RequestMoreDataBody, reque
     user_id, role = _actor(request)
     if role != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors can request more data")
+
     message = body.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message is required")
-    now = _now_ms()
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(PatientSubmission, submission_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        row.status = "needs_more_data"
-        row.doctor_reviewer_id = user_id
-        row.latest_doctor_message = message
-        row.updated_at = now
-        session.add(row)
-        session.add(
-            DoctorRequestMessage(
-                id=str(uuid4()),
-                submission_id=submission_id,
-                doctor_id=user_id,
-                message=message,
-                timestamp=now,
-            )
-        )
-        session.commit()
-        session.refresh(row)
-        return _submission_payload(row, include_messages=True, session=session)
 
-
-class LinkCaseBody(BaseModel):
-    case_id: str
-
-
-def _complete_review(
-    session: Session, submission_id: str, case_id: str, doctor_id: str
-) -> PatientSubmission:
-    row = session.get(PatientSubmission, submission_id)
-    if row is None:
+    repo = get_dynamo_repo()
+    item = repo.get_submission(submission_id)
+    if not item:
         raise HTTPException(status_code=404, detail="Submission not found")
-    row.status = "doctor_completed"
-    row.linked_case_id = case_id
-    row.doctor_reviewer_id = doctor_id
-    row.updated_at = _now_ms()
-    session.add(row)
-    session.commit()
-    session.refresh(row)
-    return row
+
+    repo.add_submission_message(submission_id, user_id, message)
+    repo.update_submission(
+        submission_id,
+        {
+            "status": "needs_more_data",
+            "doctorReviewerId": user_id,
+            "latestDoctorMessage": message,
+        },
+    )
+    return repo.get_submission(submission_id, include_messages=True)
 
 
 @router.post("/submissions/{submission_id}/complete-review")
@@ -277,26 +288,26 @@ async def complete_review(submission_id: str, body: LinkCaseBody, request: Reque
     user_id, role = _actor(request)
     if role != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors can complete reviews")
-    with Session(request.app.state.app_db_engine) as session:
-        row = _complete_review(session, submission_id, body.case_id, user_id)
-        return _submission_payload(row)
+
+    repo = get_dynamo_repo()
+    item = repo.get_submission(submission_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    updated = repo.update_submission(
+        submission_id,
+        {
+            "status": "doctor_completed",
+            "linkedCaseId": body.case_id,
+            "doctorReviewerId": user_id,
+        },
+    )
+    return updated
 
 
 @router.post("/submissions/{submission_id}/link-case")
 async def link_case(submission_id: str, body: LinkCaseBody, request: Request):
-    user_id, role = _actor(request)
-    if role != "doctor":
-        raise HTTPException(status_code=403, detail="Only doctors can link cases")
-    with Session(request.app.state.app_db_engine) as session:
-        row = _complete_review(session, submission_id, body.case_id, user_id)
-        return _submission_payload(row)
-
-
-class ReleaseSubmissionBody(BaseModel):
-    case_id: str
-    patient_summary: dict
-    letter_markdown: str
-    visit_recommendation: str
+    return await complete_review(submission_id, body, request)
 
 
 @router.post("/submissions/{submission_id}/release")
@@ -304,9 +315,11 @@ async def release_submission(submission_id: str, body: ReleaseSubmissionBody, re
     user_id, role = _actor(request)
     if role != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors can release patient results")
+
     letter = body.letter_markdown.strip()
     if not letter:
         raise HTTPException(status_code=400, detail="Finalized referral letter is required")
+
     if body.visit_recommendation not in {
         "urgent_clinic",
         "nearest_clinic",
@@ -315,65 +328,67 @@ async def release_submission(submission_id: str, body: ReleaseSubmissionBody, re
         "no_visit_needed",
     }:
         raise HTTPException(status_code=400, detail="Invalid visit recommendation")
+
+    repo = get_dynamo_repo()
+    sub = repo.get_submission(submission_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    case = repo.get_case(body.case_id)
+    if not case or case.get("doctorOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Case is not available for release")
+
     now = _now_ms()
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(PatientSubmission, submission_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        case = session.get(ClinicalCase, body.case_id)
-        if case is None or case.doctor_owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Case is not available for release")
-        row.status = "released_to_patient"
-        row.linked_case_id = body.case_id
-        row.released_case_id = body.case_id
-        row.patient_summary_json = json.dumps(body.patient_summary)
-        row.released_letter_markdown = letter
-        row.visit_recommendation = body.visit_recommendation
-        row.release_timestamp = now
-        row.doctor_reviewer_id = user_id
-        row.updated_at = now
-        session.add(row)
-        session.commit()
-        session.refresh(row)
-        return _submission_payload(row)
+    updated = repo.update_submission(
+        submission_id,
+        {
+            "status": "released_to_patient",
+            "linkedCaseId": body.case_id,
+            "releasedCaseId": body.case_id,
+            "patientSummary": body.patient_summary,
+            "releasedLetterMarkdown": letter,
+            "visitRecommendation": body.visit_recommendation,
+            "releaseTimestamp": now,
+            "doctorReviewerId": user_id,
+        },
+    )
+    return updated
 
 
-class CaseBody(BaseModel):
-    case_data: dict
-    submission_id: str | None = None
+@router.delete("/submissions/{submission_id}")
+async def delete_submission(submission_id: str, request: Request):
+    user_id, role = _actor(request)
+    repo = get_dynamo_repo()
+    item = repo.get_submission(submission_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    if role == "patient" and item.get("patientOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    if (
+        role == "doctor"
+        and item.get("doctorReviewerId")
+        and item.get("doctorReviewerId") != user_id
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    # Delete related case if linked
+    linked_case = repo.get_case_by_submission_id(submission_id)
+    if linked_case:
+        repo.delete_case(linked_case["id"])
+
+    s3 = get_s3_storage()
+    if item.get("photoS3Key"):
+        s3.delete_object(item["photoS3Key"])
+    if item.get("labS3Key"):
+        s3.delete_object(item["labS3Key"])
+
+    repo.delete_submission(submission_id)
+    return {"ok": True, "id": submission_id}
 
 
-def _clear_submission_case_state(submission: PatientSubmission, case_id: str) -> None:
-    touched = False
-    if submission.linked_case_id == case_id:
-        submission.linked_case_id = None
-        touched = True
-    if submission.released_case_id == case_id:
-        submission.released_case_id = None
-        submission.patient_summary_json = None
-        submission.released_letter_markdown = None
-        submission.release_timestamp = None
-        submission.visit_recommendation = None
-        touched = True
-    if touched:
-        submission.status = (
-            "in_review" if submission.doctor_reviewer_id else "doctor_review_pending"
-        )
-        submission.updated_at = _now_ms()
-
-
-def _delete_submission_related_case(
-    session: Session, submission_id: str, doctor_id: str | None = None
-) -> ClinicalCase | None:
-    row = session.exec(
-        select(ClinicalCase).where(ClinicalCase.submission_id == submission_id)
-    ).first()
-    if row is None:
-        return None
-    if doctor_id is not None and row.doctor_owner_id != doctor_id:
-        raise HTTPException(status_code=403, detail="Linked case is not available")
-    session.delete(row)
-    return row
+# --- Clinical Cases CRUD ---
 
 
 @router.post("/cases")
@@ -381,29 +396,32 @@ async def create_case(body: CaseBody, request: Request):
     user_id, role = _actor(request)
     if role != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors can save cases")
+
     case_id = str(body.case_data.get("id") or uuid4())
     body.case_data["id"] = case_id
     if body.submission_id:
         body.case_data["sourceSubmissionId"] = body.submission_id
-    now = _now_ms()
+
+    repo = get_dynamo_repo()
     patient_owner_id = None
-    with Session(request.app.state.app_db_engine) as session:
-        if body.submission_id:
-            submission = session.get(PatientSubmission, body.submission_id)
-            if submission:
-                patient_owner_id = submission.patient_owner_id
-        row = ClinicalCase(
-            id=case_id,
-            timestamp=int(body.case_data.get("timestamp") or now),
-            updated_at=now,
-            doctor_owner_id=user_id,
-            submission_id=body.submission_id,
-            patient_owner_id=patient_owner_id,
-            case_json=json.dumps(body.case_data),
-        )
-        session.add(row)
-        session.commit()
-        return body.case_data
+    if body.submission_id:
+        sub = repo.get_submission(body.submission_id)
+        if sub:
+            patient_owner_id = sub.get("patientOwnerId")
+
+    now = _now_ms()
+    payload = {
+        "id": case_id,
+        "timestamp": int(body.case_data.get("timestamp") or now),
+        "updatedAt": now,
+        "doctorOwnerId": user_id,
+        "submissionId": body.submission_id,
+        "patientOwnerId": patient_owner_id,
+        "caseData": body.case_data,
+    }
+
+    repo.create_case(payload)
+    return body.case_data
 
 
 @router.patch("/cases/{case_id}")
@@ -411,75 +429,56 @@ async def patch_case(case_id: str, body: CaseBody, request: Request):
     user_id, role = _actor(request)
     if role != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors can update cases")
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(ClinicalCase, case_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Case not found")
-        if row.doctor_owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Not allowed")
-        body.case_data["id"] = case_id
-        if body.submission_id:
-            body.case_data["sourceSubmissionId"] = body.submission_id
-        row.case_json = json.dumps(body.case_data)
-        row.updated_at = _now_ms()
-        row.timestamp = int(body.case_data.get("timestamp") or row.timestamp)
-        session.add(row)
-        session.commit()
-        return body.case_data
+
+    repo = get_dynamo_repo()
+    case_item = repo.get_case(case_id)
+    if not case_item:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    if case_item.get("doctorOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    body.case_data["id"] = case_id
+    if body.submission_id:
+        body.case_data["sourceSubmissionId"] = body.submission_id
+
+    now = _now_ms()
+    repo.update_case(
+        case_id,
+        {
+            "caseData": body.case_data,
+            "submissionId": body.submission_id or case_item.get("submissionId"),
+            "updatedAt": now,
+        },
+    )
+    return body.case_data
 
 
 @router.get("/cases")
 async def list_cases(request: Request):
     user_id, role = _actor(request)
-    with Session(request.app.state.app_db_engine) as session:
-        statement = select(ClinicalCase)
-        if role == "doctor":
-            statement = statement.where(ClinicalCase.doctor_owner_id == user_id)
-        else:
-            return []
-        rows = session.exec(statement.order_by(ClinicalCase.updated_at.desc())).all()
-        return [_case_payload(row) for row in rows]
+    if role != "doctor":
+        return []
+
+    repo = get_dynamo_repo()
+    cases = repo.list_cases(doctor_owner_id=user_id)
+    return [c.get("caseData", {}) for c in cases]
 
 
 @router.get("/cases/{case_id}")
 async def get_case(case_id: str, request: Request):
     user_id, role = _actor(request)
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(ClinicalCase, case_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Case not found")
-        if role == "doctor" and row.doctor_owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Not allowed")
-        if role == "patient":
-            raise HTTPException(
-                status_code=403, detail="Patients can only access released summaries"
-            )
-        return _case_payload(row)
+    repo = get_dynamo_repo()
+    case_item = repo.get_case(case_id)
+    if not case_item:
+        raise HTTPException(status_code=404, detail="Case not found")
 
+    if role == "doctor" and case_item.get("doctorOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    if role == "patient":
+        raise HTTPException(status_code=403, detail="Patients can only access released summaries")
 
-@router.delete("/submissions/{submission_id}")
-async def delete_submission(submission_id: str, request: Request):
-    user_id, role = _actor(request)
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(PatientSubmission, submission_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        if role == "patient" and row.patient_owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Not allowed")
-        if role == "doctor":
-            if row.doctor_reviewer_id and row.doctor_reviewer_id != user_id:
-                raise HTTPException(status_code=403, detail="Not allowed")
-            _delete_submission_related_case(session, submission_id, user_id)
-        else:
-            _delete_submission_related_case(session, submission_id)
-        for message in session.exec(
-            select(DoctorRequestMessage).where(DoctorRequestMessage.submission_id == submission_id)
-        ).all():
-            session.delete(message)
-        session.delete(row)
-        session.commit()
-    shutil.rmtree(_submission_upload_dir(submission_id), ignore_errors=True)
-    return {"ok": True, "id": submission_id}
+    return case_item.get("caseData", {})
 
 
 @router.delete("/cases/{case_id}")
@@ -487,17 +486,14 @@ async def delete_case(case_id: str, request: Request):
     user_id, role = _actor(request)
     if role != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors can delete cases")
-    with Session(request.app.state.app_db_engine) as session:
-        row = session.get(ClinicalCase, case_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Case not found")
-        if row.doctor_owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Not allowed")
-        if row.submission_id:
-            submission = session.get(PatientSubmission, row.submission_id)
-            if submission is not None:
-                _clear_submission_case_state(submission, case_id)
-                session.add(submission)
-        session.delete(row)
-        session.commit()
+
+    repo = get_dynamo_repo()
+    case_item = repo.get_case(case_id)
+    if not case_item:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    if case_item.get("doctorOwnerId") != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    repo.delete_case(case_id)
     return {"ok": True, "id": case_id}
