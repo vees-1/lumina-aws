@@ -1,554 +1,255 @@
 <div align="center">
 
-# Lumina
+# Lumina AWS
 
-**Doctor-reviewed rare disease triage, phenotype scoring, and patient-safe referral generation**
+**Doctor-reviewed rare disease triage, phenotype scoring, and patient-safe referral generation on an AWS-native serverless architecture.**
 
-> AWS migration repository: this private `lumina-aws` baseline is being prepared for a phased AWS-native SaaS rebuild. The target region is `us-east-1`, the cost posture is resume-demo/free-tier conscious, and Bedrock stays disabled by default until the AI provider migration phase.
-
-[![Frontend](https://img.shields.io/badge/frontend-Vercel-black?style=flat-square)](https://lumina-sandy-two.vercel.app)
-[![API](https://img.shields.io/badge/API-Hugging%20Face%20Spaces-orange?style=flat-square)](https://veees-lumina-api.hf.space)
-[![i18n](https://img.shields.io/badge/languages-7-blue?style=flat-square)](#localization)
+[![AWS Architecture](https://img.shields.io/badge/AWS-Serverless-orange?style=flat-square&logo=amazon-aws)](docs/aws-architecture.md)
+[![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?style=flat-square&logo=terraform)](#infrastructure--terraform)
+[![Auth](https://img.shields.io/badge/Auth-Amazon%20Cognito-FF9900?style=flat-square&logo=amazoncognito)](#security--authentication)
+[![AI Provider](https://img.shields.io/badge/AI-Amazon%20Bedrock-blue?style=flat-square&logo=amazonaws)](#ai-provider-abstraction)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#)
 
 </div>
 
 ---
 
-## AWS Migration Status
+## AWS Enterprise Architecture
 
-This repository is the clean baseline for moving Lumina from its current Clerk/Vercel/Hugging Face/Groq/local SQLite shape to an AWS-native SaaS architecture.
+```mermaid
+graph TB
+    subgraph Client ["Client Layer"]
+        Users["Users (Doctors / Patients)"]
+        Browser["Next.js Static Export SPA (Client Browser)"]
+    end
 
-Phase 1 is intentionally limited to repository setup, metadata, baseline validation, and migration tracking. Cognito, static export, DynamoDB, S3 uploads, SQS workers, Bedrock, Terraform, and AWS deployment are handled in later phases.
+    subgraph FrontEnd ["User & Front-End Layer"]
+        CloudFront["Amazon CloudFront CDN"]
+        S3Web["Amazon S3 (Static Web Bucket)"]
+    end
 
-See [docs/aws-migration.md](docs/aws-migration.md) for the phase tracker.
+    subgraph Identity ["Authentication & Identity Layer"]
+        CognitoUI["Amazon Cognito Hosted UI"]
+        CognitoPool["Amazon Cognito User Pool (Groups: doctor | patient)"]
+    end
+
+    subgraph Compute ["API & Compute Layer"]
+        APIGateway["Amazon API Gateway (HTTP API)"]
+        LambdaAPI["AWS Lambda (FastAPI API Handler)"]
+    end
+
+    subgraph Storage ["Data & Storage Layer"]
+        DynamoDB[("Amazon DynamoDB (Single-Table Design: PK, SK, GSI1, GSI2)")]
+        S3Uploads["Amazon S3 (Private Uploads Bucket)"]
+        RefSQLite[("Read-Only HPO / Orphanet SQLite Dataset")]
+    end
+
+    subgraph AsyncAI ["Asynchronous Processing & AI Layer"]
+        SQS["Amazon SQS (Jobs Queue + DLQ)"]
+        LambdaWorker["AWS Lambda (Worker Handler)"]
+        Bedrock["Amazon Bedrock (Claude 3 Haiku / Nova Micro)"]
+    end
+
+    subgraph Observability ["Observability, Security & Cost Guardrails"]
+        OIDC["AWS IAM OIDC (GitHub Actions Deploy)"]
+        CloudWatch["Amazon CloudWatch (7-Day Log Retention)"]
+        Budgets["AWS Budgets ($5/Month Alert Limit)"]
+    end
+
+    %% Data Flow Sequence
+    Users -->|1. Request Static Web App| CloudFront
+    CloudFront -->|OAC Signed Request| S3Web
+    Users -->|2. Authenticate Sign-in| CognitoUI
+    CognitoUI -->|Issues RS256 JWT Token| Browser
+
+    Browser -->|3. API Request with JWT Bearer Token| APIGateway
+    APIGateway -->|4. Forwards to API Handler| LambdaAPI
+    LambdaAPI -->|5. Verify Token & Enforce Group RBAC| CognitoPool
+
+    LambdaAPI -->|6. CRUD Operations & State Management| DynamoDB
+    LambdaAPI -->|7. Generate Presigned Upload/Download URLs| S3Uploads
+    LambdaAPI -->|8. Query HPO Reference Ontology| RefSQLite
+
+    LambdaAPI -->|9. Enqueue Async Extraction Job| SQS
+    SQS -->|10. Trigger Worker Message| LambdaWorker
+    LambdaWorker -->|11. Execute AI Phenotype Extraction| Bedrock
+    LambdaWorker -->|12. Write Results & Update Job Status| DynamoDB
+
+    LambdaAPI -.->|Log Traces| CloudWatch
+    LambdaWorker -.->|Log Traces| CloudWatch
+    OIDC -.->|Deploy Infrastructure| CloudFront
+```
+
+For complete technical specifications, see [docs/aws-architecture.md](docs/aws-architecture.md).
 
 ---
 
-## Demo
+## Migration Status & Phased Roadmap
 
-<div align="center">
+This repository tracks the complete, phased migration of Lumina into an AWS-native serverless SaaS architecture.
 
-[![Lumina demo video](https://img.youtube.com/vi/YgJhmPjaISU/maxresdefault.jpg)](https://www.youtube.com/watch?v=YgJhmPjaISU&list=PLBJY-JMgw8DFo7sA4YsWJLoFp36wbLUJa&index=5)
+| Phase | Milestone | AWS Infrastructure / Feature Implemented | Status |
+| :---: | :--- | :--- | :---: |
+| **Phase 1** | Baseline Cleanup | Clean repo initialization under `vees-1/lumina-aws`. | **Complete** |
+| **Phase 2** | Static Web Export | Next.js static export SPA (`apps/web/out`) for CloudFront + S3 static hosting. | **Complete** |
+| **Phase 3** | Cognito Auth | Amazon Cognito Hosted UI integration, JWT RS256 signature validation, and RBAC (`doctor` / `patient`). | **Complete** |
+| **Phase 4** | AWS Persistence | Single-table DynamoDB (`lumina-app`) and private S3 file upload pipeline with presigned URLs. | **Complete** |
+| **Phase 5** | Async AI Jobs | SQS-backed background job queue, Lambda worker, Bedrock runtime adapter, and HPO validation. | **Complete** |
+| **Phase 6** | Terraform & CI/CD | Modular Terraform (`infra/terraform`), GitHub Actions OIDC deploy workflow, and $5/mo cost alert. | **Complete** |
 
-**Click the preview to watch the Lumina demo.**
+See [docs/aws-migration.md](docs/aws-migration.md) for full phase logs.
 
-</div>
+---
+
+## Functional Workflows & Flowcharts
+
+### 1. Doctor-in-the-Loop Clinical Triage Flow
+
+Lumina enforces a strict **doctor-in-the-loop** principle: AI extracts candidate phenotypes, but only doctor-accepted Human Phenotype Ontology (HPO) findings are passed to the deterministic scoring engine.
+
+```mermaid
+flowchart TD
+    Patient["Patient Intake"] -->|Upload Notes / Photos / Labs| IntakeStore["Private S3 & DynamoDB Store"]
+    IntakeStore -->|Submission Pending| ReviewQueue["Doctor Patient Review Queue"]
+    ReviewQueue -->|Open Case| PhenotypeExtract["AI Phenotype Extraction (Bedrock)"]
+    PhenotypeExtract --> DoctorCheck{"Doctor Phenotype Review"}
+    
+    DoctorCheck -->|Reject| HallucinationFilter["Excluded From Scoring (Hallucination Control)"]
+    DoctorCheck -->|Accept| AcceptedHPO["Doctor-Approved HPO Profile"]
+    
+    AcceptedHPO --> ScoringEngine["Deterministic Rare Disease Scoring Engine"]
+    Genetics["Genetic Evidence"] --> ScoringEngine
+    RefGraph[("Orphanet / HPO Knowledge Graph")] --> ScoringEngine
+
+    ScoringEngine --> Results["Doctor-Facing Results Page (Top 10 Differentials)"]
+    Results --> ReferralLetter["One-Page Editable Referral Letter"]
+    
+    ReferralLetter --> DoctorRelease{"Doctor Release Decision"}
+    DoctorRelease -->|Release| PatientPortal["Patient Portal (Safe Summary & Letter Only)"]
+    DoctorRelease -->|Need More Evidence| PatientMsg["Ask Patient For More Data"]
+```
+
+---
+
+### 2. Asynchronous AI Extraction & Disease Scoring Pipeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Patient as Patient / Doctor
+    participant Web as Next.js Static SPA
+    participant APIGW as API Gateway HTTP API
+    participant LambdaAPI as Lambda (FastAPI API)
+    participant Dynamo as Single-Table DynamoDB
+    participant S3 as Private S3 Uploads Bucket
+    participant SQS as SQS Jobs Queue
+    participant Worker as Lambda Worker
+    participant Bedrock as Amazon Bedrock AI Engine
+
+    Patient->>Web: Uploads Clinical Note / Lab PDF / Photo
+    Web->>APIGW: POST /submissions/{id}/uploads/presigned
+    APIGGW->>LambdaAPI: Authorize & Generate Presigned PUT URL
+    LambdaAPI-->>Web: Presigned S3 PUT URL
+    Web->>S3: Upload File Directly (Private)
+    
+    Web->>APIGW: POST /jobs (enqueue extraction)
+    APIGW->>LambdaAPI: Create JOB (State: queued)
+    LambdaAPI->>Dynamo: PutItem (PK=JOB#id, Status=queued)
+    LambdaAPI->>SQS: SendMessage (job_id, payload)
+    LambdaAPI-->>Web: Return job_id (HTTP 200)
+
+    SQS->>Worker: Trigger SQS Record
+    Worker->>Dynamo: UpdateItem (Status=running)
+    Worker->>Bedrock: Invoke Model (Extract Phenotypes)
+    Bedrock-->>Worker: Raw HPO JSON Candidates
+    Worker->>Worker: Validate HPO IDs against Local HPO Vocab
+    Worker->>Dynamo: UpdateItem (Status=succeeded, Result=terms)
+
+    Web->>APIGW: GET /jobs/{job_id} (Poll Status)
+    APIGW->>LambdaAPI: GetItem (JOB#id)
+    LambdaAPI-->>Web: Return Status & Extracted HPO Findings
+```
 
 ---
 
 ## What Is Lumina?
 
-Lumina is a clinical decision-support prototype for rare disease diagnosis. It helps doctors convert scattered patient evidence into reviewed Human Phenotype Ontology (HPO) findings, rank possible rare diseases against Orphanet/HPO knowledge, and generate a polished one-page referral letter.
+Lumina is a clinical decision-support platform for rare disease diagnosis. It helps clinicians convert scattered patient evidence (clinical notes, facial photographs, lab PDFs, and genetic reports) into structured, doctor-reviewed Human Phenotype Ontology (HPO) findings, score candidate rare diseases against Orphanet/HPO knowledge, and generate a polished one-page referral letter.
 
-Lumina is built around a strict **doctor-in-the-loop** principle:
+### Key Principles
 
-- AI can suggest clinical phenotypes.
-- The doctor must accept or reject each suggested phenotype.
-- Rejected and pending findings are excluded from scoring.
-- Genetic evidence is reviewed separately and carries strong diagnostic weight when it supports a disease.
-- The full technical scorecard stays doctor-facing by default.
-- Patients receive a calm, doctor-approved summary and referral letter, not raw disease rankings or confidence tables.
-
-Lumina is **not a medical device** and does not replace clinical judgment. It is a research/prototype system designed to make rare disease triage faster, more structured, and more explainable.
+- **AI Suggests, Doctor Decides**: AI provides phenotype candidates; clinicians accept or reject each finding.
+- **Hallucination Control**: Rejected and pending findings are strictly excluded from rare disease scoring.
+- **Explainable Scoring**: Differential rankings use deterministic ontology similarity (Lin, Resnik/MICA, Jaccard) combined with genetic evidence calibration.
+- **Patient Safety**: Raw scorecard confidence tables remain doctor-facing. Patients receive calm, doctor-approved summaries and referral letters.
 
 ---
 
-## Why Lumina Exists
+## AWS Technology Stack
 
-Rare disease diagnosis is difficult because the useful clues are usually scattered across years of clinical notes, lab reports, visible physical findings, genetic reports, and specialist letters. There are more than 7,000 known rare diseases, and no doctor can memorize every phenotype pattern, gene association, inheritance pattern, and confirmatory workup.
-
-In a real clinic, a doctor needs a system that can:
-
-- capture patient evidence quickly,
-- extract likely HPO phenotype findings,
-- reduce AI hallucination through doctor approval,
-- score rare disease candidates using reviewed evidence only,
-- show why each disease was ranked,
-- highlight missing and distinguishing findings,
-- preserve patient safety by hiding raw scorecards from patients,
-- create a referral letter that another specialist can act on.
-
-Lumina was built around that workflow.
+| Architecture Layer | AWS & Open-Source Technology |
+| :--- | :--- |
+| **Front-End & CDN** | Next.js Static Export SPA, React, TypeScript, Tailwind CSS, Amazon CloudFront, Amazon S3. |
+| **Authentication** | Amazon Cognito Hosted UI & User Pools (RS256 JWT validation, `doctor` and `patient` groups). |
+| **API & Serverless** | AWS Lambda (Python FastAPI API Handler & SQS Worker Handler), Amazon API Gateway HTTP API. |
+| **Persistence** | Amazon DynamoDB (Single-table design: `PK`, `SK`, `GSI1`, `GSI2`), Amazon S3 (Private uploads). |
+| **Async Processing** | Amazon SQS (Jobs queue + Dead Letter Queue). |
+| **GenAI & Extraction** | Amazon Bedrock (Claude 3 Haiku / Nova Micro) with fallback `DEMO` provider mode. |
+| **Knowledge Base** | Read-Only Orphanet & HPO SQLite medical ontology database packaged directly with Lambda. |
+| **Infrastructure as Code** | Terraform (`infra/terraform`) with S3 state backend (`use_lockfile = true`). |
+| **CI/CD Deployment** | GitHub Actions OIDC deployment workflow (`.github/workflows/deploy.yml`). |
+| **Observability & Cost** | Amazon CloudWatch (7-day retention) and AWS Budgets ($5/month limit alert). |
 
 ---
 
-## Core Workflow
+## Local Development & Testing
 
-1. A patient or clinic staff member submits clinical notes, photos, lab reports, and genetic evidence.
-2. The submission appears in the doctor-facing patient review queue.
-3. The doctor opens the submission and reviews patient context.
-4. Lumina suggests HPO phenotype terms from text, photo, and lab evidence.
-5. The doctor accepts correct phenotypes and rejects incorrect ones.
-6. Accepted phenotypes and reviewed genetic evidence are passed to the scoring engine.
-7. Lumina returns the top rare disease differentials with explainability.
-8. The doctor reviews supporting findings, missing findings, and distinguishing clues.
-9. The doctor generates and edits a one-page referral letter.
-10. The doctor explicitly releases a patient-safe summary and referral letter to the patient dashboard.
+### Prerequisites
 
-The patient dashboard is intentionally limited. Lumina was originally designed for doctors using the tool while the patient is physically present in the clinic. The patient-side workflow solves the remote pre-intake and report-release requirement without giving patients unrestricted access to technical rare disease rankings that may confuse or frighten them.
+- Node.js 20+ & `pnpm`
+- Python 3.14+ & `uv`
+- Terraform 1.5+ (optional for IaC validation)
 
----
+### Quick Start
 
-## Product Surface
+1. **Install Dependencies**:
+   ```bash
+   pnpm install
+   ```
 
-### Doctor Dashboard
+2. **Run Frontend (Static SPA)**:
+   ```bash
+   cd apps/web
+   pnpm dev
+   ```
 
-The doctor dashboard is the main workspace. It gives clinicians fast access to:
+3. **Run API Backend**:
+   ```bash
+   cd apps/api
+   uv sync
+   uv run uvicorn main:app --reload
+   ```
 
-- saved cases,
-- new case intake,
-- patient review queue,
-- pending submissions,
-- released letters,
-- case search by patient, date, diagnosis, or case ID.
+4. **Execute Tests & Linters**:
+   ```bash
+   # Run backend pytest suite (17 tests)
+   cd apps/api && uv run pytest
 
-### Patient Review Queue
+   # Run Python linter & format check
+   cd apps/api && uv run ruff check . && uv run ruff format --check .
 
-Patients can submit evidence before or between appointments. Those submissions are stored server-side and shown in the doctor queue with clear status tracking:
+   # Run frontend lint & static build check
+   pnpm --filter web lint && pnpm --filter web typecheck && pnpm --filter web build
+   ```
 
-- `doctor_review_pending`: submitted and waiting for review,
-- `in_review`: opened by a doctor,
-- `needs_more_data`: doctor requested more evidence,
-- `doctor_completed`: analysis exists but has not been released,
-- `released_to_patient`: patient can see the approved summary and referral letter.
-
-Doctors can review a submission, ask for more data, run the diagnostic workflow, and release only the safe output.
-
-### Clinical Intake
-
-The intake workspace supports:
-
-- patient context,
-- clinical notes,
-- voice input,
-- quick present/absent symptom chips,
-- clinical photo upload,
-- lab report upload,
-- manual genetic evidence entry,
-- AI-suggested HPO terms,
-- doctor accept/reject review controls,
-- final differential diagnosis.
-
-### Disease Catalog
-
-Each disease page gives doctors a compact clinical reference:
-
-- disease name and ORPHA code,
-- inheritance, onset, prevalence, and confirmatory workup where available,
-- phenotypes and frequency,
-- associated genes,
-- OMIM and ICD codes,
-- PubMed references,
-- an **Analyze this disease** action that opens trusted medical sources such as OMIM or PubMed.
-
-PubMed references are published medical papers linked to the disease. They help doctors verify the condition with real research instead of relying only on AI output.
-
-### Results Page
-
-The doctor-facing results page shows:
-
-- top 10 differential diagnoses,
-- evidence-strength confidence,
-- matched HPO findings,
-- missing expected findings,
-- distinguishing clues between close candidates,
-- absent findings that reduce confidence,
-- genetic support level,
-- HPO provenance,
-- PubMed references for the top diagnosis,
-- editable referral letter,
-- patient release controls for linked submissions.
-
-### Patient Dashboard
-
-The patient dashboard shows:
-
-- submitted evidence status,
-- doctor request messages,
-- whether more data is needed,
-- whether a referral is ready,
-- released patient-safe summary,
-- released referral letter,
-- print/download controls for the referral letter.
-
-Patients do **not** see the full technical differential diagnosis by default.
-
-### Referral Letter
-
-The referral letter is the main clinical artifact. Lumina generates a one-page, doctor-editable referral letter containing:
-
-- patient details,
-- doctor profile and signature,
-- urgency or visit recommendation,
-- key accepted findings,
-- genetic context,
-- top differential diagnoses,
-- recommended next steps.
-
-The doctor can edit, print, download as PDF, and release the finalized letter to the patient dashboard.
-
-Example generated referral letter:
-
-[View the sample referral letter PDF](docs/assets/referral-letter-example.pdf)
+5. **Validate Infrastructure as Code**:
+   ```bash
+   cd infra/terraform
+   terraform fmt -check
+   ```
 
 ---
 
-## Technical Architecture
+## Disclaimer
 
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial", "fontSize": "18px", "primaryTextColor": "#0f172a", "lineColor": "#334155"}, "flowchart": {"htmlLabels": true, "nodeSpacing": 48, "rankSpacing": 56}}}%%
-flowchart TD
-    A["Patient Dashboard<br/>submit notes, photos, labs, genetic evidence"]
-    B["Submission Store<br/>evidence files + review status"]
-    C["Doctor Dashboard<br/>cases, patient queue, letters, release controls"]
-    D["Patient Review Queue / Doctor Cases<br/>open review or continue case"]
-    E["New Case Workflow<br/>doctor reviews patient context and evidence"]
-    F["AI HPO Extraction<br/>notes, photos, labs to validated HPO suggestions"]
-    G{"Doctor Phenotype Review<br/>accept or reject AI suggestions"}
-    H["Doctor-Approved HPO Profile<br/>only accepted findings can score"]
-    I["Genetic Evidence<br/>gene, variant, classification, zygosity"]
-    J["Rare Disease Scoring<br/>HPO similarity + absent penalties + genetic boost"]
-    K["Doctor-Only Results<br/>top 10, confidence, matched and missing clues"]
-    L["Disease Research<br/>genes, phenotypes, OMIM, PubMed"]
-    M["Referral Letter<br/>one-page editable PDF-ready output"]
-    N{"Doctor Release Decision"}
-    O["Patient-Safe Release<br/>calm summary + referral letter only"]
-    P["Ask For More Data<br/>message returns to patient dashboard"]
-    Q["orpha.sqlite<br/>Orphanet, HPO, genes, disease phenotypes"]
-    R["lumina_app.sqlite<br/>submissions, linked cases, release state"]
-
-    A --> B --> C --> D --> E --> F --> G
-    G -- reject --> S["Excluded From Scoring<br/>hallucination control"]
-    G -- accept --> H
-    H --> J
-    I --> J
-    Q --> J
-    R --> B
-    R --> C
-    J --> K
-    K --> L
-    K --> M
-    M --> N
-    N -- release --> O --> A
-    N -- need more evidence --> P --> A
-    N -- hold --> K
-
-    classDef patient fill:#ecfdf5,stroke:#16a34a,stroke-width:2px,color:#0f172a;
-    classDef doctor fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0f172a;
-    classDef engine fill:#fff7ed,stroke:#d97706,stroke-width:2px,color:#0f172a;
-    classDef data fill:#f1f5f9,stroke:#64748b,stroke-width:1.5px,color:#0f172a;
-    classDef safe fill:#f0fdf4,stroke:#059669,stroke-width:2px,color:#0f172a;
-    classDef warn fill:#fef2f2,stroke:#dc2626,stroke-width:1.5px,color:#0f172a;
-
-    class A patient;
-    class O safe;
-    class C,D,E,K,L,M,N doctor;
-    class F,G,H,I,J engine;
-    class B,Q,R data;
-    class S,P warn;
-```
-
----
-
-## How Scoring Works
-
-Lumina does not ask an LLM to directly choose the final diagnosis. The LLM can help extract candidate phenotypes, but the final ranking is deterministic and evidence-driven.
-
-The scoring flow:
-
-1. AI extraction suggests HPO findings from clinical evidence.
-2. Returned HPO IDs are validated against local HPO data.
-3. The doctor accepts or rejects each phenotype.
-4. Only accepted findings are scored.
-5. Present findings increase support for diseases linked to similar phenotypes.
-6. Absent findings penalize diseases where those findings are expected.
-7. Pathogenic or likely pathogenic genetic evidence gives strong extra support to diseases linked to that gene.
-8. The backend returns ranked differential diagnoses with contributing, missing, and distinguishing findings.
-
-The phenotype matching uses HPO ontology structure:
-
-- **Lin similarity** when information content is available,
-- **Resnik-style most informative common ancestor** as part of Lin similarity,
-- **Jaccard similarity over ancestor sets** as a fallback,
-- Orphanet phenotype frequency weights,
-- absent-finding penalties,
-- genetic support calibration.
-
-This makes Lumina more explainable than a pure chatbot answer. A doctor can see which phenotypes drove each result and what findings are still missing.
-
----
-
-## Implemented Features
-
-### Evidence Extraction
-
-- Clinical note HPO suggestion.
-- Clinical photo HPO suggestion.
-- Lab report HPO suggestion.
-- OCR/PDF/image handling for lab evidence.
-- HPO validation against local ontology data.
-- Source/provenance tracking for extracted findings.
-- Fallback matching when model extraction fails.
-
-### Doctor Review
-
-- Pending, accepted, and rejected phenotype states.
-- Present and absent finding support.
-- Doctor approval required before scoring.
-- Rejected and pending findings excluded from final ranking.
-- This review step is explicitly designed to reduce AI hallucination risk.
-
-### Genetic Evidence
-
-- Manual gene and variant entry from a real clinical/genetic report.
-- Classification support for pathogenic, likely pathogenic, VUS, benign, and unknown.
-- Strong scoring support for pathogenic or likely pathogenic gene-disease matches.
-- Weak or limited support for uncertain evidence.
-- Genetic evidence never replaces doctor interpretation; it changes ranking weight.
-
-### Rare Disease Results
-
-- Top 10 differential diagnosis ranking.
-- Evidence-strength confidence.
-- Phenotype match score.
-- Genetic support score.
-- Contributing HPO findings.
-- Missing expected findings.
-- Distinguishing features between close candidates.
-- Discordant absent findings.
-- Deterministic result behavior for reviewed inputs.
-
-### Case Management
-
-- Doctor cases page.
-- Search by patient, diagnosis, date, and case ID.
-- Delete cases.
-- Original input shown on case page.
-- Add more evidence to an existing case.
-- Persisted linked cases through the backend app database.
-
-### Patient Workflow
-
-- Patient dashboard.
-- Patient evidence submission.
-- Patient submissions page.
-- Patient reports page.
-- Doctor messages requesting more data.
-- Per-submission status tracking.
-- Delete submissions and linked release data.
-- Patient-safe released reports only.
-
-### Referral And Release
-
-- One-page referral letter generation.
-- Editable letter draft.
-- Doctor profile and signature support.
-- Urgency and visit recommendation.
-- Print-ready letter preview.
-- PDF download.
-- Release summary and referral letter to patient.
-- Full technical scorecard remains doctor-only by default.
-
-### Disease Research
-
-- Disease detail pages.
-- Phenotype list with frequencies.
-- Gene list.
-- Prevalence, onset, inheritance, and workup fields where available.
-- OMIM and ICD codes.
-- PubMed references.
-- External trusted-source analysis links.
-
-### Localization
-
-Lumina supports 7 languages:
-
-- English,
-- Hindi,
-- German,
-- French,
-- Spanish,
-- Chinese,
-- Japanese.
-
-UI text, navigation, patient/doctor flows, release states, and referral-letter controls are localized. HPO labels are localized where reliable official HPO translations exist; otherwise they fall back to English.
-
----
-
-## Backend Data And Persistence
-
-Lumina uses two database layers:
-
-- `data/orpha.sqlite`: rare disease knowledge data built from Orphanet/HPO-related assets.
-- `data/lumina_app.sqlite`: application data for submissions, uploaded evidence metadata, linked clinical cases, doctor messages, patient-safe summaries, released letters, and release state.
-
-Uploaded evidence files are stored on the API server filesystem under the app data directory and referenced through database metadata.
-
----
-
-## Repository Map
-
-```text
-apps/
-  web/
-    Next.js frontend
-    Doctor dashboard, patient dashboard, queue, intake, results,
-    disease catalog, referral letter UI, i18n messages
-
-  api/
-    FastAPI backend
-    Extraction, scoring, disease details, submissions,
-    cases, release flow, referral letters, PDF generation
-
-packages/
-  extractors/
-    HPO extraction, validation, OCR/model fallbacks
-
-  scoring/
-    Disease ranking, HPO similarity, genetic weighting,
-    missing/distinguishing findings
-
-  ingest/
-    Orphanet/HPO/ClinVar data ingestion and database build scripts
-
-  schemas/
-    Shared schema definitions
-
-data/
-  orpha.sqlite
-    Rare disease phenotype/gene graph
-
-  lumina_app.sqlite
-    Runtime app persistence database
-```
-
----
-
-## Tech Stack
-
-| Area | Technology |
-| --- | --- |
-| Frontend | Next.js, React, TypeScript, Tailwind CSS |
-| UI | Custom clinical UI with shadcn-style primitives |
-| Auth | Clerk |
-| Backend | FastAPI, Python |
-| App persistence | SQLModel + SQLite |
-| AI extraction | Groq-hosted Llama models |
-| OCR/PDF | pytesseract, Pillow, pypdf |
-| Scoring | Deterministic HPO/Orphanet evidence scoring |
-| Similarity | Lin, Resnik/MICA, Jaccard ancestor-set fallback |
-| Data | Orphanet, HPO, ClinVar, FGDD-derived assets |
-| Frontend deployment | Vercel |
-| API deployment | Hugging Face Spaces |
-
----
-
-## Local Development
-
-Install dependencies:
-
-```bash
-pnpm install
-```
-
-Run the frontend:
-
-```bash
-cd apps/web
-pnpm dev
-```
-
-Run the API:
-
-```bash
-cd apps/api
-uv sync
-uv run uvicorn main:app --reload
-```
-
-Useful checks:
-
-```bash
-pnpm --filter web typecheck
-pnpm --filter web lint
-cd apps/api && uv run ruff check .
-```
-
-Build local disease data:
-
-```bash
-cd packages/ingest
-uv run python run.py
-```
-
----
-
-## Deployment Rules
-
-- Deploy the frontend to Vercel.
-- Deploy only `apps/api` and `packages/` to Hugging Face Spaces.
-- Do not deploy the full monorepo to Hugging Face.
-- Do not commit patient demo files, credentials, tokens, or private clinical data.
-- Update Hugging Face by manually cloning the Space, copying `apps/api` and `packages/`, then pushing from the Space repo.
-- Do not use `git subtree` or cross-branch checkout workflows for Hugging Face deployment.
-
----
-
-## Current Limitations
-
-Lumina is still a prototype:
-
-- It is not clinically certified.
-- It has not been validated on a large prospective clinical dataset.
-- AI extraction quality depends on input quality, OCR quality, and model behavior.
-- The doctor must review all suggested phenotypes before scoring.
-- Disease names are not fully localized.
-- Some HPO translations fall back to English where reliable translations are unavailable.
-- Clinical deployment would require audit logs, access controls, validation studies, and regulatory review.
-
----
-
-## Roadmap
-
-Short-term engineering:
-
-- Add automated end-to-end browser tests for the full doctor/patient flow.
-- Expand API tests for submission, release, scoring, and PDF generation.
-- Improve file upload status and OCR failure recovery.
-- Add audit history for accepted/rejected phenotypes.
-- Add stronger locale key parity checks.
-
-Clinical/product:
-
-- Compare rankings against confirmed diagnoses.
-- Improve disease page clinical action summaries.
-- Improve genetic evidence weighting with stronger curated mappings.
-- Add structured follow-up recommendations.
-- Add institution-level referral templates.
-
-Research/data:
-
-- Expand validated HPO matching.
-- Improve multilingual HPO terminology.
-- Add benchmark datasets for rare disease triage.
-- Improve missing-finding recommendations.
-
----
-
-## Project Status
-
-Lumina currently demonstrates a full prototype workflow:
-
-```text
-patient or doctor evidence
-  -> AI HPO suggestions
-  -> doctor phenotype approval
-  -> reviewed genetic evidence
-  -> deterministic rare disease scoring
-  -> explainable doctor-facing differential
-  -> one-page referral letter
-  -> patient-safe release
-```
-
-The core idea is simple: give doctors the computational power to search rare disease space, but keep clinical authority with the doctor and keep patient-facing output safe, calm, and useful.
+Lumina is a research prototype for clinical decision support. It is **not a medical device** and does not provide automated diagnostic advice. All clinical decisions, diagnosis verifications, and referral releases must be made by qualified healthcare professionals.
