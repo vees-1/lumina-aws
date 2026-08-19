@@ -1126,8 +1126,8 @@
   "common": {
     "loading": "Loading...",
     "error": "Something went wrong",
-    "brandName": "Lumina",
-    "metaTitle": "Lumina — Rare Disease Diagnosis",
+    "brandName": "Lumina Differential Diagnosis",
+    "metaTitle": "Lumina Differential Diagnosis — Rare Disease Clinical Decision Support",
     "metaDesc": "Doctor-led rare disease diagnosis platform. Clinical notes, photos, lab reports, and genetic evidence reviewed before scoring.",
     "toggleTheme": "Toggle theme",
     "overview": "Overview",

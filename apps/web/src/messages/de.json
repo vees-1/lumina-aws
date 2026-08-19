@@ -1084,8 +1084,8 @@
   "common": {
     "loading": "Lädt...",
     "error": "Etwas ist schiefgelaufen",
-    "brandName": "Lumina",
-    "metaTitle": "Lumina — Diagnose seltener Krankheiten",
+    "brandName": "Lumina Differential Diagnosis",
+    "metaTitle": "Lumina Differential Diagnosis — Rare Disease Clinical Decision Support",
     "metaDesc": "Arztgeführte Plattform zur Diagnose seltener Krankheiten. Klinische Notizen, Fotos, Laborberichte und genetische Beweise werden vor der Bewertung überprüft.",
     "toggleTheme": "Thema umschalten",
     "overview": "Übersicht",

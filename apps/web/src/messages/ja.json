@@ -1075,8 +1075,8 @@
   "common": {
     "loading": "読み込み中...",
     "error": "問題が発生しました",
-    "brandName": "ルミナ",
-    "metaTitle": "ルミナ — 希少疾患の診断",
+    "brandName": "Lumina Differential Diagnosis",
+    "metaTitle": "Lumina Differential Diagnosis — Rare Disease Clinical Decision Support",
     "metaDesc": "医師主導の希少疾患診断プラットフォーム。臨床ノート、写真、ラボレポート、遺伝的証拠をスコアリング前に確認します。",
     "toggleTheme": "テーマを切り替える",
     "overview": "概要",
