@@ -17,13 +17,7 @@ const newsreader = Newsreader({
   display: 'swap',
 });
 
-export const metadata = {
-  icons: {
-    icon: "/aws-logo.svg",
-    shortcut: "/aws-logo.svg",
-    apple: "/aws-logo.svg",
-  },
-};
+export const metadata = {};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

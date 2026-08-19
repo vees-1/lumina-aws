@@ -10,7 +10,6 @@ import { readStoredAuthSession, readStoredUserRole } from "@/lib/user-role";
 
 /* -- Logo -------------------------------------------------------------------- */
 export function LuminaLogo({ className, footer = false }: { className?: string; footer?: boolean }) {
-  const size = footer ? 36 : 28;
   const t = useTranslations("common");
   const brandName = t("brandName");
   return (
@@ -22,10 +21,6 @@ export function LuminaLogo({ className, footer = false }: { className?: string; 
       )}
       aria-label={brandName}
     >
-      <svg width={size} height={size} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-        <path d="M14 0L16.2 11.8L28 14L16.2 16.2L14 28L11.8 16.2L0 14L11.8 11.8L14 0Z" fill="#06B6D4"/>
-        <circle cx="14" cy="14" r="3" fill={footer ? "#0f172a" : "#FFFFFF"}/>
-      </svg>
       <span className={cn(
         "font-normal tracking-tight leading-none",
         footer ? "text-white text-[24px]" : "text-slate-900 dark:text-white text-[20px]"

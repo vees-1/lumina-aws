@@ -118,7 +118,11 @@ app.add_middleware(
 
 @app.middleware("http")
 async def ensure_state_middleware(request, call_next):
-    ensure_app_state(request.app)
+    if request.url.path == "/health":
+        if not hasattr(request.app.state, "db_engine") or request.app.state.db_engine is None:
+            request.app.state.db_engine = get_engine()
+    else:
+        ensure_app_state(request.app)
     return await call_next(request)
 
 
