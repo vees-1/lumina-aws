@@ -14,9 +14,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     title: t("metaTitle"),
     description: t("metaDesc"),
     icons: {
-      icon: "/aws-logo.svg",
-      shortcut: "/aws-logo.svg",
-      apple: "/aws-logo.svg",
+      icon: "/lumina-icon.svg",
+      shortcut: "/lumina-icon.svg",
+      apple: "/lumina-icon.svg",
     },
   };
 }
