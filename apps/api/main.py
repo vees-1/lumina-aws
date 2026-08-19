@@ -111,3 +111,12 @@ async def health():
     except Exception as e:
         db_status = f"error: {e}"
     return {"status": "ok", "version": "0.1.0", "db": db_status}
+
+
+try:
+    from mangum import Mangum
+
+    handler = Mangum(app, lifespan="off")
+except ImportError:
+    handler = None
+

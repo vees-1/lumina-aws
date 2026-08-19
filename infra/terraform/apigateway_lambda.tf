@@ -99,6 +99,8 @@ resource "aws_lambda_function" "api" {
   role             = aws_iam_role.lambda_exec.arn
   handler          = "main.handler"
   runtime          = "python3.11"
+  memory_size      = 512
+  timeout          = 30
   filename         = data.archive_file.dummy_lambda.output_path
   source_code_hash = data.archive_file.dummy_lambda.output_base64sha256
 
@@ -121,6 +123,8 @@ resource "aws_lambda_function" "worker" {
   role             = aws_iam_role.lambda_exec.arn
   handler          = "api.worker.lambda_handler"
   runtime          = "python3.11"
+  memory_size      = 512
+  timeout          = 60
   filename         = data.archive_file.dummy_lambda.output_path
   source_code_hash = data.archive_file.dummy_lambda.output_base64sha256
 
