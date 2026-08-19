@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from ingest.db import get_engine
@@ -81,8 +82,13 @@ class ScoringIndex:
     disease_genes: dict[int, set[str]]
 
     @classmethod
-    def load(cls, db_path=None) -> ScoringIndex:
-        engine = get_engine(db_path) if db_path else get_engine()
+    def load(cls, db_path_or_engine=None) -> ScoringIndex:
+        if db_path_or_engine is not None and not isinstance(db_path_or_engine, (str, Path)):
+            engine = db_path_or_engine
+        elif db_path_or_engine:
+            engine = get_engine(db_path_or_engine)
+        else:
+            engine = get_engine()
 
         with Session(engine) as session:
             ic: dict[str, float] = {}

@@ -24,7 +24,7 @@ def package():
         "--platform", "manylinux2014_x86_64",
         "--only-binary=:all:",
         "--python-version", "3.11",
-        "fastapi", "mangum", "sqlmodel", "pydantic", "python-dotenv", "boto3", "pyjwt[crypto]", "httpx", "pillow", "pyhpo"
+        "fastapi", "mangum", "sqlmodel", "pydantic", "python-dotenv", "boto3", "pyjwt[crypto]", "httpx", "pillow", "pyhpo", "reportlab", "python-multipart", "pypdf", "lxml", "groq"
     ], check=True)
 
     print("📄 Copying application code & data...")

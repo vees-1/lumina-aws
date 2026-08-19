@@ -8,6 +8,8 @@ def _resolve_app_db_path() -> Path:
     url = os.environ.get("LUMINA_APP_DATABASE_URL", "")
     if url.startswith("sqlite:///"):
         return Path(url.removeprefix("sqlite:///"))
+    if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or os.environ.get("LAMBDA_TASK_ROOT"):
+        return Path("/tmp/lumina_app.sqlite")
     for candidate in [
         Path.cwd() / "data" / "lumina_app.sqlite",
         Path.cwd() / ".." / ".." / "data" / "lumina_app.sqlite",
@@ -15,12 +17,12 @@ def _resolve_app_db_path() -> Path:
     ]:
         if candidate.parent.exists():
             return candidate.resolve()
-    return Path(__file__).parent.parent.parent.parent / "data" / "lumina_app.sqlite"
+    return Path("/tmp/lumina_app.sqlite")
 
 
 APP_DB_PATH = _resolve_app_db_path()
 APP_DATA_DIR = APP_DB_PATH.parent
-UPLOAD_DIR = APP_DATA_DIR / "uploads" / "submissions"
+UPLOAD_DIR = Path("/tmp/uploads/submissions") if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") else APP_DATA_DIR / "uploads" / "submissions"
 
 
 def get_app_engine():

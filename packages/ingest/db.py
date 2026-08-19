@@ -9,25 +9,31 @@ def _resolve_db_path() -> Path:
     url = os.environ.get("DATABASE_URL", "")
     if url.startswith("sqlite:///"):
         return Path(url.removeprefix("sqlite:///"))
-    # Try cwd-relative data/ (works when running from repo root or apps/api)
     for candidate in [
+        Path("/var/task/data/orpha.sqlite"),
         Path.cwd() / "data" / "orpha.sqlite",
         Path.cwd() / ".." / ".." / "data" / "orpha.sqlite",
         Path.cwd() / ".." / "data" / "orpha.sqlite",
+        Path(__file__).parent / "data" / "orpha.sqlite",
+        Path(__file__).parent.parent / "data" / "orpha.sqlite",
     ]:
         if candidate.exists():
             return candidate.resolve()
-    # Ultimate fallback (for ingest scripts run from packages/ingest/)
-    return Path(__file__).parent.parent.parent / "data" / "orpha.sqlite"
+    return Path("/var/task/data/orpha.sqlite")
 
 
 DB_PATH = _resolve_db_path()
 DATA_DIR = DB_PATH.parent
 
 
-def get_engine(db_path: Path | None = None):
+def get_engine(db_path: Path | str | None = None):
     path = db_path or DB_PATH
-    return create_engine(f"sqlite:///{path}", echo=False)
+    path_str = str(path)
+    if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or os.environ.get("LAMBDA_TASK_ROOT"):
+        if not path_str.startswith("file:"):
+            path_str = f"file:{path_str}?mode=ro"
+        return create_engine(f"sqlite:///{path_str}", echo=False, uri=True)
+    return create_engine(f"sqlite:///{path_str}", echo=False)
 
 
 def init_db(db_path: Path | None = None):
