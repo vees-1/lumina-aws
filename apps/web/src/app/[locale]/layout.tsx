@@ -13,11 +13,6 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title: t("metaTitle"),
     description: t("metaDesc"),
-    icons: {
-      icon: "/lumina-icon.svg",
-      shortcut: "/lumina-icon.svg",
-      apple: "/lumina-icon.svg",
-    },
   };
 }
 
