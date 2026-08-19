@@ -24,8 +24,24 @@ def package():
         "--platform", "manylinux2014_x86_64",
         "--only-binary=:all:",
         "--python-version", "3.11",
-        "fastapi", "mangum", "sqlmodel", "pydantic", "python-dotenv", "boto3", "pyjwt[crypto]", "httpx", "pillow", "pyhpo", "reportlab", "python-multipart", "pypdf", "lxml", "groq"
+        "fastapi", "mangum", "sqlmodel", "pydantic", "python-dotenv", "pyjwt[crypto]", "httpx", "pillow", "pyhpo", "reportlab", "python-multipart", "pypdf", "lxml", "groq"
     ], check=True)
+
+    print("🧹 Pruning redundant packages (boto3/botocore) & cache files...")
+    # boto3 & botocore are pre-installed in AWS Lambda Python runtime
+    for redundant in ["boto3", "botocore", "s3transfer", "jmespath"]:
+        r_path = BUILD_DIR / redundant
+        if r_path.exists():
+            shutil.rmtree(r_path)
+
+    # Prune dist-info, __pycache__, tests
+    for root, dirs, files in os.walk(BUILD_DIR, topdown=False):
+        for d in dirs:
+            if d.endswith(".dist-info") or d.endswith(".egg-info") or d == "__pycache__" or d == "tests":
+                shutil.rmtree(Path(root) / d, ignore_errors=True)
+        for f in files:
+            if f.endswith(".pyc") or f.endswith(".pyo"):
+                (Path(root) / f).unlink(missing_ok=True)
 
     print("📄 Copying application code & data...")
     # Copy apps/api
