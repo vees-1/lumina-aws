@@ -30,6 +30,12 @@ resource "aws_cognito_user_pool_client" "client" {
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_scopes                 = ["email", "openid", "profile"]
   callback_urls = [
+    "https://lumina-dd.online/en/sign-in",
+    "https://lumina-dd.online/en",
+    "https://lumina-dd.online",
+    "https://www.lumina-dd.online/en/sign-in",
+    "https://www.lumina-dd.online/en",
+    "https://www.lumina-dd.online",
     "https://d124bi3e327i7a.cloudfront.net/en/sign-in",
     "https://d124bi3e327i7a.cloudfront.net/en",
     "https://d124bi3e327i7a.cloudfront.net",
@@ -37,6 +43,12 @@ resource "aws_cognito_user_pool_client" "client" {
     "http://localhost:3000/en"
   ]
   logout_urls = [
+    "https://lumina-dd.online/en/sign-in",
+    "https://lumina-dd.online/en",
+    "https://lumina-dd.online",
+    "https://www.lumina-dd.online/en/sign-in",
+    "https://www.lumina-dd.online/en",
+    "https://www.lumina-dd.online",
     "https://d124bi3e327i7a.cloudfront.net/en/sign-in",
     "https://d124bi3e327i7a.cloudfront.net/en",
     "https://d124bi3e327i7a.cloudfront.net",

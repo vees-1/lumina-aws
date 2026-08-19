@@ -32,6 +32,7 @@ resource "aws_cloudfront_origin_access_control" "oac" {
 resource "aws_cloudfront_distribution" "cdn" {
   enabled             = true
   default_root_object = "index.html"
+  aliases             = ["lumina-dd.online", "www.lumina-dd.online"]
 
   origin {
     domain_name              = aws_s3_bucket.web.bucket_regional_domain_name
@@ -78,7 +79,33 @@ resource "aws_cloudfront_distribution" "cdn" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    acm_certificate_arn      = "arn:aws:acm:us-east-1:346380392033:certificate/773d5a97-fda6-46b6-b913-19ddf71d83b9"
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
+  }
+}
+
+resource "aws_route53_record" "apex" {
+  zone_id = "Z1047325C5ZFKY7N0I1F"
+  name    = "lumina-dd.online"
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.cdn.domain_name
+    zone_id                = aws_cloudfront_distribution.cdn.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "www" {
+  zone_id = "Z1047325C5ZFKY7N0I1F"
+  name    = "www.lumina-dd.online"
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.cdn.domain_name
+    zone_id                = aws_cloudfront_distribution.cdn.hosted_zone_id
+    evaluate_target_health = false
   }
 }
 
