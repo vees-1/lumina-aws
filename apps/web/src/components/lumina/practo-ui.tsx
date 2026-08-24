@@ -21,13 +21,13 @@ export function LuminaLogo({ className, footer = false }: { className?: string; 
       aria-label={brandName}
     >
       <Image
-        src="/lumina-brand-logo.png"
+        src={footer ? "/lumina-brand-logo-white.png" : "/lumina-brand-logo.png"}
         alt={brandName}
-        width={200}
-        height={109}
+        width={220}
+        height={84}
         className={cn(
           "w-auto object-contain",
-          footer ? "h-11 brightness-0 invert" : "h-9 sm:h-10"
+          footer ? "h-10 sm:h-11" : "h-8 sm:h-10"
         )}
       />
     </span>
