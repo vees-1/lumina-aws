@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Stethoscope, User } from "lucide-react";
 import { Suspense } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -10,8 +11,15 @@ import { type UserRole } from "@/lib/user-role";
 
 function Logo() {
   return (
-    <span className="inline-flex items-center gap-2 select-none" aria-label="Lumina">
-      <span className="text-[20px] font-normal tracking-tight leading-none text-slate-900 dark:text-white">Lumina</span>
+    <span className="inline-flex items-center select-none" aria-label="Lumina Differential Diagnosis">
+      <Image
+        src="/lumina-brand-logo.png"
+        alt="Lumina Differential Diagnosis"
+        width={180}
+        height={98}
+        className="h-9 sm:h-10 w-auto object-contain"
+        priority
+      />
     </span>
   );
 }

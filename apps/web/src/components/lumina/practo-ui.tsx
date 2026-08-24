@@ -15,18 +15,21 @@ export function LuminaLogo({ className, footer = false }: { className?: string; 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 select-none",
-        footer ? "gap-3" : "gap-2",
+        "inline-flex items-center select-none",
         className
       )}
       aria-label={brandName}
     >
-      <span className={cn(
-        "font-normal tracking-tight leading-none",
-        footer ? "text-white text-[24px]" : "text-slate-900 dark:text-white text-[20px]"
-      )}>
-        {brandName}
-      </span>
+      <Image
+        src="/lumina-brand-logo.png"
+        alt={brandName}
+        width={200}
+        height={109}
+        className={cn(
+          "w-auto object-contain",
+          footer ? "h-11 brightness-0 invert" : "h-9 sm:h-10"
+        )}
+      />
     </span>
   );
 }

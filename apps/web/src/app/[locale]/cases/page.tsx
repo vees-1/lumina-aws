@@ -18,6 +18,7 @@ import { useApiActor } from "@/lib/use-api-actor";
 import { formatDateTime, formatNumber } from "@/lib/formatters";
 import type { CaseSummary } from "@/types/lumina";
 import { Download, Plus, ClipboardList, Search, Trash2 } from "lucide-react";
+import { LoadingScreen } from "@/components/loading-screen";
 
 function confidenceColor(pct: number) {
   if (pct >= 70) return "bg-[#1A7F4B]";
@@ -138,7 +139,7 @@ export default function CasesPage() {
           {/* Cases table */}
           <div className="overflow-hidden rounded-sm border border-[#DDE3ED] bg-white">
             {loading ? (
-              <div className="p-10 text-center text-[14px] text-[#4A5568]">{t("loading")}</div>
+              <LoadingScreen text={t("loading")} />
             ) : filteredCases.length ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[780px] text-left">

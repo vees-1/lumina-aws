@@ -89,16 +89,16 @@ export default function LandingPage() {
               <p className="mx-auto mt-4 max-w-[480px] text-[15px] leading-7 text-[#4A5568] lg:mx-0">
                 {t("heroSub", { brandName })}
               </p>
-              <div className="mt-7 flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start">
+              <div className="mt-7 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-center lg:justify-start">
                 <Link
                   href={`/${locale}/new-case`}
-                  className="flex w-full items-center justify-center rounded-lg bg-[#0AAFCE] px-7 py-3.5 text-[15px] font-normal text-white transition-colors hover:bg-[#0997B3] sm:w-auto"
+                  className="inline-flex h-12 items-center justify-center rounded-lg bg-[#0AAFCE] px-7 text-[15px] font-medium text-white transition-colors hover:bg-[#0997B3] whitespace-nowrap shadow-sm"
                 >
                   {t("getStartedFree")}
                 </Link>
                 <Link
                   href={`/${locale}/how-it-works`}
-                  className="flex w-full items-center justify-center rounded-lg border border-[#DDE3ED] bg-white px-7 py-3.5 text-[15px] font-normal text-[#0D1B2A] transition-colors hover:border-[#0D1B2A] sm:w-auto"
+                  className="inline-flex h-12 items-center justify-center rounded-lg border border-[#DDE3ED] bg-white px-7 text-[15px] font-medium text-[#0D1B2A] transition-colors hover:border-[#0D1B2A] whitespace-nowrap shadow-sm"
                 >
                   {t("howItWorks")}
                 </Link>
@@ -250,16 +250,16 @@ export default function LandingPage() {
                 {t("heroSub", { brandName })}
               </p>
 
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
                 <Link
                   href={`/${locale}/new-case`}
-                  className="flex items-center justify-center rounded-lg bg-[#0AAFCE] px-8 py-3.5 text-[15px] font-normal text-white transition-colors hover:bg-[#0997B3]"
+                  className="inline-flex h-12 items-center justify-center rounded-lg bg-[#0AAFCE] px-7 text-[15px] font-medium text-white transition-colors hover:bg-[#0997B3] whitespace-nowrap shadow-sm"
                 >
                   {t("newCase")}
                 </Link>
                 <Link
                   href={`/${locale}/about`}
-                  className="flex items-center justify-center rounded-lg border border-white/20 px-8 py-3.5 text-[15px] font-normal text-white transition-colors hover:border-white/50"
+                  className="inline-flex h-12 items-center justify-center rounded-lg border border-white/20 px-7 text-[15px] font-medium text-white transition-colors hover:border-white/50 whitespace-nowrap"
                 >
                   {t("about.title", { brandName })}
                 </Link>

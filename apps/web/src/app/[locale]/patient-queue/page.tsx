@@ -15,6 +15,7 @@ import { useApiActor } from "@/lib/use-api-actor";
 import type { PatientSubmission } from "@/types/lumina";
 import { cn } from "@/lib/utils";
 import { Inbox, MessageSquare, RefreshCw, Search, Trash2 } from "lucide-react";
+import { LoadingScreen } from "@/components/loading-screen";
 
 export default function PatientQueuePage() {
   const locale = useLocale();
@@ -155,7 +156,7 @@ export default function PatientQueuePage() {
 
           <div className="overflow-hidden rounded border border-[#DDE3ED] bg-white">
             {loading ? (
-              <div className="p-10 text-center text-[14px] text-[#4A5568]">{t("loading")}</div>
+              <LoadingScreen text={t("loading")} />
             ) : filteredSubmissions.length ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[860px] text-left">

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, Check, Menu, X, Globe, LogOut, UserCircle } from "lucide-react";
 import { getApiHealth } from "@/lib/api";
@@ -148,12 +149,17 @@ export function LuminaLogo() {
   const brandName = t("brandName");
   return (
     <span
-      className="inline-flex items-center gap-2 select-none"
+      className="inline-flex items-center select-none"
       aria-label={brandName}
     >
-      <span className="text-[20px] font-normal tracking-tight text-slate-900 dark:text-white leading-none">
-        {brandName}
-      </span>
+      <Image
+        src="/lumina-brand-logo.png"
+        alt={brandName}
+        width={180}
+        height={98}
+        className="h-9 sm:h-10 w-auto object-contain"
+        priority
+      />
     </span>
   );
 }
