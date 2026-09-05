@@ -2,7 +2,7 @@
 
 ## AWS Enterprise Architecture
 
-![Professional AWS Architecture Diagram](../docs/assets/aws_official_architecture_diagram.png)
+![Lumina AWS runtime architecture](assets/aws_architecture_simple.png)
 
 ---
 

@@ -9,6 +9,8 @@ from extractors.vcf import VcfExtractionError, extract_vcf
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
+from api.auth import get_current_actor
+
 router = APIRouter(prefix="/intake", tags=["intake"])
 
 
@@ -40,6 +42,7 @@ def _enrich_terms(
 
 @router.post("/text", response_model=list[HPOTerm])
 async def intake_text(body: NotesRequest, request: Request) -> list[HPOTerm]:
+    get_current_actor(request)
     try:
         terms = await extract_notes(body.notes, request.app.state.hpo_vocab)
         return _enrich_terms(validate_terms(terms, {}, request.app.state.hpo_names), request)
@@ -55,6 +58,7 @@ async def intake_photo(
     file: UploadFile = File(...),
     facial: bool = False,
 ) -> list[HPOTerm]:
+    get_current_actor(request)
     try:
         image_bytes = await file.read()
         facial_vocab = request.app.state.facial_vocab if facial else None
@@ -74,6 +78,7 @@ async def intake_photo(
 
 @router.post("/lab", response_model=list[HPOTerm])
 async def intake_lab(request: Request, file: UploadFile = File(...)) -> list[HPOTerm]:
+    get_current_actor(request)
     try:
         terms = await extract_lab(
             await file.read(),
@@ -96,6 +101,7 @@ async def intake_lab(request: Request, file: UploadFile = File(...)) -> list[HPO
 
 @router.post("/vcf", response_model=list[HPOTerm])
 async def intake_vcf(request: Request, file: UploadFile = File(...)) -> list[HPOTerm]:
+    get_current_actor(request)
     try:
         terms = extract_vcf(await file.read(), request.app.state.db_engine)
         validated = validate_terms(terms, {}, request.app.state.hpo_names)

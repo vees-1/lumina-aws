@@ -14,14 +14,13 @@ export default function PatientDashboardPage() {
   const locale = useLocale();
   const t = useTranslations("patientDashboard");
   const actor = useApiActor();
-  const [fallbackSubmissions] = useState<PatientSubmission[]>(() => getPatientSubmissions());
   const [submissions, setSubmissions] = useState<PatientSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     if (!actor) return;
     getPatientSubmissionsRemote(actor)
       .then(setSubmissions)
-      .catch(() => setSubmissions(fallbackSubmissions))
+      .catch(() => setSubmissions(getPatientSubmissions()))
       .finally(() => setLoading(false));
   }, [actor]);
 

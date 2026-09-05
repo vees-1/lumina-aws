@@ -1,22 +1,30 @@
 "use client";
 
-import { useMemo } from "react";
-import { readStoredUserRole } from "@/lib/user-role";
+import { useEffect, useState } from "react";
+import { readStoredAuthSession, readStoredUserRole } from "@/lib/user-role";
 import { getStoredCognitoClaims, getStoredCognitoToken } from "@/lib/cognito-auth";
 import type { ApiActor } from "@/lib/api";
 
 export function useApiActor(): ApiActor | null {
-  const claims = getStoredCognitoClaims();
-  const token = getStoredCognitoToken();
-  const fallbackRole = readStoredUserRole();
+  const [actor, setActor] = useState<ApiActor | null>(null);
 
-  const role = claims?.role ?? fallbackRole;
-  const userId = claims?.sub ?? `local-${role}`;
-
-  const actor = useMemo(
-    () => ({ userId, role, token: token ?? undefined }),
-    [userId, role, token]
-  );
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (!readStoredAuthSession(false)) {
+        setActor(null);
+        return;
+      }
+      const claims = getStoredCognitoClaims();
+      const token = getStoredCognitoToken();
+      const role = claims?.role ?? readStoredUserRole();
+      setActor({
+        userId: claims?.sub ?? `local-${role}`,
+        role,
+        token: token ?? undefined,
+      });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   return actor;
 }

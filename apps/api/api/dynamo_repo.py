@@ -1,10 +1,34 @@
 import os
 import time
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
 import boto3
-from botocore.exceptions import ClientError
+
+SUBMISSION_STATUSES = (
+    "submitted",
+    "doctor_review_pending",
+    "in_review",
+    "needs_more_data",
+    "approved",
+    "scorecard_ready",
+    "doctor_completed",
+    "released_to_patient",
+)
+
+
+def _to_dynamodb_value(value: Any) -> Any:
+    """Recursively convert JSON numbers into values accepted by DynamoDB."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {key: _to_dynamodb_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_dynamodb_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_to_dynamodb_value(item) for item in value)
+    return value
 
 
 class DynamoDBRepository:
@@ -30,10 +54,10 @@ class DynamoDBRepository:
             self._table = self._dynamodb_resource.Table(self.table_name)
         return self._table
 
-    def _is_local_mode(self) -> bool:
-        return os.getenv("LUMINA_AUTH_MODE", "").strip().lower() == "local" or not os.getenv(
-            "AWS_ACCESS_KEY_ID"
-        )
+    @property
+    def is_local_mode(self) -> bool:
+        """Keep in-memory persistence strictly local; never hide AWS failures in production."""
+        return os.getenv("LUMINA_AUTH_MODE", "").strip().lower() == "local"
 
     # --- Submissions ---
 
@@ -76,17 +100,19 @@ class DynamoDBRepository:
             "visitRecommendation": data.get("visitRecommendation"),
         }
 
-        try:
-            self.table.put_item(
-                Item=item,
-                ConditionExpression="attribute_not_exists(PK)",
-            )
-        except (ClientError, Exception):
+        if self.is_local_mode:
             pk = item["PK"]
             sk = item["SK"]
             if pk not in self._local_storage:
                 self._local_storage[pk] = {}
+            if sk in self._local_storage[pk]:
+                raise ValueError(f"Submission {submission_id} already exists")
             self._local_storage[pk][sk] = item
+        else:
+            self.table.put_item(
+                Item=_to_dynamodb_value(item),
+                ConditionExpression="attribute_not_exists(PK)",
+            )
 
         return item
 
@@ -95,11 +121,11 @@ class DynamoDBRepository:
     ) -> dict[str, Any] | None:
         pk = f"SUBMISSION#{submission_id}"
         item = None
-        try:
+        if self.is_local_mode:
+            item = self._local_storage.get(pk, {}).get("METADATA")
+        else:
             res = self.table.get_item(Key={"PK": pk, "SK": "METADATA"})
             item = res.get("Item")
-        except (ClientError, Exception):
-            item = self._local_storage.get(pk, {}).get("METADATA")
 
         if item is None:
             return None
@@ -119,30 +145,7 @@ class DynamoDBRepository:
     ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
 
-        try:
-            if role == "patient" and user_id:
-                res = self.table.query(
-                    IndexName="GSI1",
-                    KeyConditionExpression="GSI1PK = :gsi1pk",
-                    ExpressionAttributeValues={":gsi1pk": f"USER#{user_id}"},
-                    ScanIndexForward=False,
-                )
-                items = res.get("Items", [])
-                results = [item for item in items if item.get("SK") == "METADATA"]
-            elif status:
-                res = self.table.query(
-                    IndexName="GSI2",
-                    KeyConditionExpression="GSI2PK = :gsi2pk",
-                    ExpressionAttributeValues={":gsi2pk": f"STATUS#{status}"},
-                    ScanIndexForward=False,
-                )
-                items = res.get("Items", [])
-                results = [item for item in items if item.get("SK") == "METADATA"]
-            else:
-                res = self.table.scan()
-                items = res.get("Items", [])
-                results = [item for item in items if item.get("SK") == "METADATA"]
-        except (ClientError, Exception):
+        if self.is_local_mode:
             for pk, sk_map in self._local_storage.items():
                 if "METADATA" in sk_map and pk.startswith("SUBMISSION#"):
                     item = sk_map["METADATA"]
@@ -151,6 +154,54 @@ class DynamoDBRepository:
                     if status and item.get("status") != status:
                         continue
                     results.append(item)
+        else:
+            if role == "patient" and user_id:
+                query_args: dict[str, Any] = {
+                    "IndexName": "GSI1",
+                    "KeyConditionExpression": (
+                        "GSI1PK = :gsi1pk AND begins_with(GSI1SK, :submission_prefix)"
+                    ),
+                    "ExpressionAttributeValues": {
+                        ":gsi1pk": f"USER#{user_id}",
+                        ":submission_prefix": "SUBMISSION#",
+                    },
+                    "ScanIndexForward": False,
+                }
+                while True:
+                    res = self.table.query(**query_args)
+                    results.extend(
+                        item
+                        for item in res.get("Items", [])
+                        if item.get("PK", "").startswith("SUBMISSION#")
+                        and item.get("SK") == "METADATA"
+                    )
+                    last_evaluated_key = res.get("LastEvaluatedKey")
+                    if not last_evaluated_key:
+                        break
+                    query_args["ExclusiveStartKey"] = last_evaluated_key
+            else:
+                statuses = (status,) if status else SUBMISSION_STATUSES
+                for submission_status in statuses:
+                    query_args = {
+                        "IndexName": "GSI2",
+                        "KeyConditionExpression": "GSI2PK = :gsi2pk",
+                        "ExpressionAttributeValues": {
+                            ":gsi2pk": f"STATUS#{submission_status}"
+                        },
+                        "ScanIndexForward": False,
+                    }
+                    while True:
+                        res = self.table.query(**query_args)
+                        results.extend(
+                            item
+                            for item in res.get("Items", [])
+                            if item.get("PK", "").startswith("SUBMISSION#")
+                            and item.get("SK") == "METADATA"
+                        )
+                        last_evaluated_key = res.get("LastEvaluatedKey")
+                        if not last_evaluated_key:
+                            break
+                        query_args["ExclusiveStartKey"] = last_evaluated_key
 
         results.sort(key=lambda x: x.get("updatedAt", 0), reverse=True)
         return results
@@ -170,24 +221,24 @@ class DynamoDBRepository:
         merged["GSI2PK"] = f"STATUS#{status}"
         merged["GSI2SK"] = f"SUBMISSION#{now}"
 
-        try:
-            self.table.put_item(Item=merged)
-        except (ClientError, Exception):
+        if self.is_local_mode:
             if pk not in self._local_storage:
                 self._local_storage[pk] = {}
             self._local_storage[pk]["METADATA"] = merged
+        else:
+            self.table.put_item(Item=_to_dynamodb_value(merged))
 
         return merged
 
     def delete_submission(self, submission_id: str) -> None:
         pk = f"SUBMISSION#{submission_id}"
-        try:
+        if self.is_local_mode:
+            self._local_storage.pop(pk, None)
+        else:
             messages = self.list_submission_messages(submission_id)
             for msg in messages:
                 self.table.delete_item(Key={"PK": pk, "SK": f"MSG#{msg['timestamp']}#{msg['id']}"})
             self.table.delete_item(Key={"PK": pk, "SK": "METADATA"})
-        except (ClientError, Exception):
-            self._local_storage.pop(pk, None)
 
     # --- Submission Messages ---
 
@@ -206,14 +257,14 @@ class DynamoDBRepository:
             "timestamp": now,
         }
 
-        try:
-            self.table.put_item(Item=item)
-        except (ClientError, Exception):
+        if self.is_local_mode:
             pk = item["PK"]
             sk = item["SK"]
             if pk not in self._local_storage:
                 self._local_storage[pk] = {}
             self._local_storage[pk][sk] = item
+        else:
+            self.table.put_item(Item=_to_dynamodb_value(item))
 
         return item
 
@@ -221,17 +272,17 @@ class DynamoDBRepository:
         pk = f"SUBMISSION#{submission_id}"
         results: list[dict[str, Any]] = []
 
-        try:
+        if self.is_local_mode:
+            for sk, item in self._local_storage.get(pk, {}).items():
+                if sk.startswith("MSG#"):
+                    results.append(item)
+        else:
             res = self.table.query(
                 KeyConditionExpression="PK = :pk AND begins_with(SK, :sk_prefix)",
                 ExpressionAttributeValues={":pk": pk, ":sk_prefix": "MSG#"},
                 ScanIndexForward=False,
             )
             results = res.get("Items", [])
-        except (ClientError, Exception):
-            for sk, item in self._local_storage.get(pk, {}).items():
-                if sk.startswith("MSG#"):
-                    results.append(item)
 
         results.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
         return results
@@ -262,27 +313,40 @@ class DynamoDBRepository:
             item["GSI2PK"] = f"SUBMISSION#{submission_id}"
             item["GSI2SK"] = f"CASE#{case_id}"
 
-        try:
-            self.table.put_item(Item=item, ConditionExpression="attribute_not_exists(PK)")
-        except (ClientError, Exception):
+        if self.is_local_mode:
             pk = item["PK"]
             sk = item["SK"]
             if pk not in self._local_storage:
                 self._local_storage[pk] = {}
+            if sk in self._local_storage[pk]:
+                raise ValueError(f"Case {case_id} already exists")
             self._local_storage[pk][sk] = item
+        else:
+            self.table.put_item(
+                Item=_to_dynamodb_value(item),
+                ConditionExpression="attribute_not_exists(PK)",
+            )
 
         return item
 
     def get_case(self, case_id: str) -> dict[str, Any] | None:
         pk = f"CASE#{case_id}"
-        try:
-            res = self.table.get_item(Key={"PK": pk, "SK": "METADATA"})
-            return res.get("Item")
-        except (ClientError, Exception):
+        if self.is_local_mode:
             return self._local_storage.get(pk, {}).get("METADATA")
+        res = self.table.get_item(
+            Key={"PK": pk, "SK": "METADATA"},
+            ConsistentRead=True,
+        )
+        return res.get("Item")
 
     def get_case_by_submission_id(self, submission_id: str) -> dict[str, Any] | None:
-        try:
+        if self.is_local_mode:
+            for pk, sk_map in self._local_storage.items():
+                if pk.startswith("CASE#") and "METADATA" in sk_map:
+                    item = sk_map["METADATA"]
+                    if item.get("submissionId") == submission_id:
+                        return item
+        else:
             res = self.table.query(
                 IndexName="GSI2",
                 KeyConditionExpression="GSI2PK = :gsi2pk",
@@ -291,30 +355,57 @@ class DynamoDBRepository:
             items = res.get("Items", [])
             if items:
                 return items[0]
-        except (ClientError, Exception):
-            for pk, sk_map in self._local_storage.items():
-                if pk.startswith("CASE#") and "METADATA" in sk_map:
-                    item = sk_map["METADATA"]
-                    if item.get("submissionId") == submission_id:
-                        return item
         return None
 
     def list_cases(self, doctor_owner_id: str) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
-        try:
-            res = self.table.query(
-                IndexName="GSI1",
-                KeyConditionExpression="GSI1PK = :gsi1pk",
-                ExpressionAttributeValues={":gsi1pk": f"USER#{doctor_owner_id}"},
-                ScanIndexForward=False,
-            )
-            results = res.get("Items", [])
-        except (ClientError, Exception):
+        if self.is_local_mode:
             for pk, sk_map in self._local_storage.items():
                 if pk.startswith("CASE#") and "METADATA" in sk_map:
                     item = sk_map["METADATA"]
                     if item.get("doctorOwnerId") == doctor_owner_id:
                         results.append(item)
+        else:
+            hpo_projection = ", ".join(
+                f"#case_data.hpoTerms[{index}].hpo_id" for index in range(32)
+            )
+            query_args: dict[str, Any] = {
+                "IndexName": "GSI1",
+                "KeyConditionExpression": (
+                    "GSI1PK = :gsi1pk AND begins_with(GSI1SK, :gsi1sk)"
+                ),
+                "ExpressionAttributeValues": {
+                    ":gsi1pk": f"USER#{doctor_owner_id}",
+                    ":gsi1sk": "CASE#",
+                },
+                "ProjectionExpression": (
+                    "#id, #timestamp, updatedAt, #submission_id, #case_data.#id, "
+                    "#case_data.#timestamp, #case_data.modalities, "
+                    "#case_data.rankings[0].#name, "
+                    "#case_data.rankings[0].confidence, "
+                    "#case_data.patientContext.patientName, "
+                    "#case_data.referralLetterDraft, "
+                    "#case_data.#source_submission_id, #case_data.#outcome, "
+                    f"{hpo_projection}"
+                ),
+                "ExpressionAttributeNames": {
+                    "#id": "id",
+                    "#timestamp": "timestamp",
+                    "#submission_id": "submissionId",
+                    "#case_data": "caseData",
+                    "#name": "name",
+                    "#source_submission_id": "sourceSubmissionId",
+                    "#outcome": "outcome",
+                },
+                "ScanIndexForward": False,
+            }
+            while True:
+                res = self.table.query(**query_args)
+                results.extend(res.get("Items", []))
+                last_evaluated_key = res.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+                query_args["ExclusiveStartKey"] = last_evaluated_key
 
         results.sort(key=lambda x: x.get("updatedAt", 0), reverse=True)
         return results
@@ -328,21 +419,21 @@ class DynamoDBRepository:
         merged["updatedAt"] = updates.get("updatedAt") or int(time.time() * 1000)
         pk = f"CASE#{case_id}"
 
-        try:
-            self.table.put_item(Item=merged)
-        except (ClientError, Exception):
+        if self.is_local_mode:
             if pk not in self._local_storage:
                 self._local_storage[pk] = {}
             self._local_storage[pk]["METADATA"] = merged
+        else:
+            self.table.put_item(Item=_to_dynamodb_value(merged))
 
         return merged
 
     def delete_case(self, case_id: str) -> None:
         pk = f"CASE#{case_id}"
-        try:
-            self.table.delete_item(Key={"PK": pk, "SK": "METADATA"})
-        except (ClientError, Exception):
+        if self.is_local_mode:
             self._local_storage.pop(pk, None)
+        else:
+            self.table.delete_item(Key={"PK": pk, "SK": "METADATA"})
 
 
 _default_repo = DynamoDBRepository()

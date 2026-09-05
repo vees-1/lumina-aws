@@ -3,6 +3,7 @@ from typing import Any
 
 from api.ai_provider import get_ai_provider
 from api.jobs import get_job_manager
+from main import ensure_app_state
 
 
 def process_job(
@@ -42,7 +43,14 @@ def process_job(
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     records = event.get("Records", [])
-    processed = []
+    failures = []
+
+    # Load the packaged ontology once per warm execution environment so model
+    # output is always validated against the same reference data as the API.
+    from main import app
+
+    ensure_app_state(app)
+    hpo_vocab = getattr(app.state, "hpo_names", {})
 
     for record in records:
         try:
@@ -53,10 +61,10 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             job_type = body.get("job_type")
             payload = body.get("payload", {})
 
-            if job_id:
-                res = process_job(job_id, user_id, job_type, payload)
-                processed.append(res)
-        except Exception as exc:
-            processed.append({"error": str(exc)})
+            if not job_id or not user_id or not job_type:
+                raise ValueError("SQS job is missing required fields")
+            process_job(job_id, user_id, job_type, payload, hpo_vocab=hpo_vocab)
+        except Exception:
+            failures.append({"itemIdentifier": record.get("messageId", "unknown")})
 
-    return {"statusCode": 200, "processed": len(processed)}
+    return {"batchItemFailures": failures}

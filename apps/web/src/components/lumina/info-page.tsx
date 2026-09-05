@@ -15,18 +15,11 @@ export function InfoPage({ namespace, icons }: InfoPageProps) {
   const brandName = tc("brandName");
 
   const getT = (key: string, fallbackKey?: string) => {
-    try {
+    if (t.has(key)) {
       return t(key, { brandName });
-    } catch {
-      if (fallbackKey) {
-        try {
-          return t(fallbackKey, { brandName });
-        } catch {
-          return "";
-        }
-      }
-      return "";
     }
+    if (fallbackKey && t.has(fallbackKey)) return t(fallbackKey, { brandName });
+    return "";
   };
 
   const features = [

@@ -27,3 +27,8 @@ output "github_deploy_role_arn" {
   value       = aws_iam_role.github_deploy.arn
   description = "GitHub Actions OIDC Deploy Role ARN"
 }
+
+output "deployment_artifact_bucket" {
+  value       = aws_s3_bucket.artifacts.id
+  description = "Private bucket for immutable Lambda deployment packages"
+}

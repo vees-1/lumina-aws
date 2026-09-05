@@ -27,3 +27,14 @@ variable "budget_email" {
   default     = "alerts@example.com"
   description = "Email address for AWS Budget alerts"
 }
+
+variable "web_origins" {
+  type = list(string)
+  default = [
+    "https://lumina-dd.online",
+    "https://www.lumina-dd.online",
+    "https://d124bi3e327i7a.cloudfront.net",
+    "http://localhost:3000",
+  ]
+  description = "Allowed browser origins for the API and direct uploads"
+}

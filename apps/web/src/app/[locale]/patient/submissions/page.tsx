@@ -21,7 +21,6 @@ export default function PatientSubmissionsPage() {
   const locale = useLocale();
   const t = useTranslations("patientSubmissions");
   const actor = useApiActor();
-  const [fallbackSubmissions] = useState<PatientSubmission[]>(() => getPatientSubmissions());
   const [submissions, setSubmissions] = useState<PatientSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -29,7 +28,7 @@ export default function PatientSubmissionsPage() {
     getPatientSubmissionsRemote(actor)
       .then(setSubmissions)
       .catch(() => {
-        setSubmissions(fallbackSubmissions);
+        setSubmissions(getPatientSubmissions());
         toast.error(t("loadFailed"));
       })
       .finally(() => setLoading(false));

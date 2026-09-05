@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { DashboardNav } from "@/components/nav";
 import { RoleGuard } from "@/components/lumina/role-guard";
-import { getCaseSummaries, getCasesRemote, getPatientSubmissions, getPatientSubmissionsRemote, summarizeCases } from "@/lib/api";
+import { getCaseSummaries, getCasesRemote, getPatientSubmissions, getPatientSubmissionsRemote, reconcileCaseStorage } from "@/lib/api";
 import { useApiActor } from "@/lib/use-api-actor";
 import type { CaseSummary, PatientSubmission } from "@/types/lumina";
 import { FileText, Plus, ClipboardList, Users } from "lucide-react";
@@ -15,18 +15,20 @@ export default function DashboardPage() {
   const t = useTranslations("doctorDashboard");
   const tCommon = useTranslations("common");
   const actor = useApiActor();
-  const [fallbackCases] = useState<CaseSummary[]>(() => getCaseSummaries());
-  const [fallbackSubmissions] = useState<PatientSubmission[]>(() => getPatientSubmissions());
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [submissions, setSubmissions] = useState<PatientSubmission[]>([]);
   useEffect(() => {
     if (!actor || actor.role !== "doctor") return;
-    getCasesRemote(actor).then((items) => setCases(summarizeCases(items))).catch(() => setCases(fallbackCases));
-    getPatientSubmissionsRemote(actor).then(setSubmissions).catch(() => setSubmissions(fallbackSubmissions));
+    getCasesRemote(actor)
+      .then((items) => {
+        setCases(reconcileCaseStorage(items));
+      })
+      .catch(() => setCases(getCaseSummaries()));
+    getPatientSubmissionsRemote(actor).then(setSubmissions).catch(() => setSubmissions(getPatientSubmissions()));
   }, [actor]);
   const today = new Date().toDateString();
   const activeToday = cases.filter((item) => new Date(item.timestamp).toDateString() === today).length;
-  const lettersReady = cases.filter((item) => item.status === "confirmed").length;
+  const lettersReady = cases.filter((item) => item.hasLetter).length;
   const pendingQueue = submissions.filter((s) => s.status === "doctor_review_pending" || s.status === "needs_more_data").length;
 
   const stats = [

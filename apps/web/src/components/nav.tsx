@@ -224,14 +224,8 @@ export function Nav({ transparent = false }: { transparent?: boolean } = {}) {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const toLocalePath = useLocalePath();
-  const [storedRole] = useState<"doctor" | "patient">(() => readStoredUserRole());
-  const [isSignedIn, setIsSignedIn] = useState(() => {
-    if (typeof window !== "undefined" && handleCognitoCallback()) {
-      return true;
-    }
-    return readStoredAuthSession(false);
-  });
-  const role = storedRole;
+  const [role, setRole] = useState<"doctor" | "patient">("doctor");
+  const [isSignedIn, setIsSignedIn] = useState(false);
   const workspaceHref = role === "patient" ? "/patient" : "/dashboard";
   const activeLocale = useLocale();
   const [apiReady, setApiReady] = useState<boolean | null>(null);
@@ -254,6 +248,20 @@ export function Nav({ transparent = false }: { transparent?: boolean } = {}) {
     { label: t("privacy"), href: "/privacy", translationKey: "privacy" },
     { label: t("support"), href: "/support", translationKey: "support" },
   ];
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setRole(readStoredUserRole());
+      setIsSignedIn(readStoredAuthSession(false));
+      void handleCognitoCallback().then((completed) => {
+        if (completed) {
+          setRole(readStoredUserRole());
+          setIsSignedIn(true);
+        }
+      });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     if (!isSignedIn) return;

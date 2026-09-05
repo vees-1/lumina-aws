@@ -4,14 +4,14 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useLocale, useMessages, useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { DashboardNav } from "@/components/nav";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { localizeHpoLabel, type HpoLabelMessages } from "@/lib/hpo";
+import { apiFetch, apiUrl, clinicalHeaders } from "@/lib/api";
+import { localizeHpoLabel, useHpoLabels } from "@/lib/hpo";
 
 const ease = [0.25, 0.46, 0.45, 0.94] as const;
-const API = "/api";
 
 interface Phenotype {
   hpo_id: string;
@@ -140,7 +140,7 @@ function ErrorState({ orpha, locale }: { orpha: string; locale: string }) {
 function DiseaseDetailContent() {
   const t = useTranslations("disease");
   const locale = useLocale();
-  const messages = useMessages() as HpoLabelMessages;
+  const messages = useHpoLabels(locale);
   const searchParams = useSearchParams();
   const orpha = searchParams.get("orpha") ?? "";
   const [disease, setDisease] = useState<DiseaseDetail | null>(null);
@@ -156,7 +156,10 @@ function DiseaseDetailContent() {
         return;
       }
       try {
-        const res = await fetch(`${API}/disease/${orpha}?lang=${encodeURIComponent(locale)}`);
+        const res = await apiFetch(
+          apiUrl(`/disease/${encodeURIComponent(orpha)}?lang=${encodeURIComponent(locale)}`),
+          { headers: clinicalHeaders() },
+        );
         if (!res.ok) {
           if (!cancelled) setError(true);
           return;

@@ -12,7 +12,7 @@ import {
   exportAllCases,
   getCaseSummaries,
   getCasesRemote,
-  summarizeCases,
+  reconcileCaseStorage,
 } from "@/lib/api";
 import { useApiActor } from "@/lib/use-api-actor";
 import { formatDateTime, formatNumber } from "@/lib/formatters";
@@ -30,21 +30,23 @@ export default function CasesPage() {
   const locale = useLocale();
   const t = useTranslations("casesPage");
   const actor = useApiActor();
-  const [fallbackCases] = useState<CaseSummary[]>(() => getCaseSummaries());
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingCaseId, setDeletingCaseId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (!actor || actor.role !== "doctor") return;
     getCasesRemote(actor)
-      .then((items) => setCases(summarizeCases(items)))
+      .then((items) => {
+        setCases(reconcileCaseStorage(items));
+      })
       .catch(() => {
-        setCases(fallbackCases);
+        setCases(getCaseSummaries());
         toast.error(t("loadFailed"));
       })
       .finally(() => setLoading(false));
-  }, [actor]);
+  }, [actor, t]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const filteredCases = cases.filter((item) => {
@@ -68,15 +70,18 @@ export default function CasesPage() {
   const confirmed = cases.filter((item) => item.status === "confirmed").length;
 
   async function handleDelete(caseId: string) {
-    if (!actor) return;
+    if (!actor || deletingCaseId) return;
     if (!window.confirm(t("deleteConfirm"))) return;
+    setDeletingCaseId(caseId);
     try {
       await deleteCaseRemote(caseId, actor);
       deleteCaseFromStorage(caseId);
       setCases((current) => current.filter((item) => item.id !== caseId));
       toast.success(t("deleteSuccess"));
-    } catch {
-      toast.error(t("deleteFailed"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("deleteFailed"));
+    } finally {
+      setDeletingCaseId(null);
     }
   }
 
@@ -181,10 +186,11 @@ export default function CasesPage() {
                             <button
                               type="button"
                               onClick={() => handleDelete(item.id)}
+                              disabled={deletingCaseId !== null}
                               className="inline-flex items-center gap-1.5 rounded-sm border border-[#E7C5C5] px-3 py-1.5 text-[12px] text-[#B42318] transition-colors hover:border-[#B42318]"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                              {t("delete")}
+                              {deletingCaseId === item.id ? t("loading") : t("delete")}
                             </button>
                           </td>
                         </tr>

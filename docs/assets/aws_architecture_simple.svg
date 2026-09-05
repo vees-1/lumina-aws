@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1000" viewBox="0 0 1900 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Lumina AWS runtime architecture</title>
+  <desc id="desc">Users access the static web application through Route 53, CloudFront, and S3. Cognito authenticates users. API Gateway invokes the API Lambda, which uses DynamoDB, private S3 uploads, and an SQS queue. SQS invokes the worker Lambda and sends failed messages to a dead-letter queue. Lambda logs go to CloudWatch.</desc>
+
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f97316"/>
+    </marker>
+    <style>
+      .title { font: 700 30px Arial, Helvetica, sans-serif; fill: #111827; }
+      .cloud-label { font: 700 23px Arial, Helvetica, sans-serif; fill: #334155; }
+      .service { font: 700 19px Arial, Helvetica, sans-serif; fill: #111827; text-anchor: middle; }
+      .name { font: 500 16px Arial, Helvetica, sans-serif; fill: #475569; text-anchor: middle; }
+      .user-label { font: 700 20px Arial, Helvetica, sans-serif; fill: #111827; text-anchor: middle; }
+      .line-label { font: 700 14px Arial, Helvetica, sans-serif; fill: #ea580c; text-anchor: middle; }
+      .flow { fill: none; stroke: #475569; stroke-width: 4; marker-end: url(#arrow); stroke-linecap: round; stroke-linejoin: round; }
+      .support { fill: none; stroke: #64748b; stroke-width: 3; stroke-dasharray: 9 8; marker-end: url(#arrow); stroke-linecap: round; stroke-linejoin: round; }
+      .auth { fill: none; stroke: #f97316; stroke-width: 3; stroke-dasharray: 9 8; marker-end: url(#arrowOrange); stroke-linecap: round; }
+      .node { fill: white; stroke: #cbd5e1; stroke-width: 2; rx: 18; filter: url(#shadow); }
+      .icon-text { font: 700 22px Arial, Helvetica, sans-serif; fill: white; text-anchor: middle; dominant-baseline: middle; }
+    </style>
+  </defs>
+
+  <rect width="1900" height="1000" fill="#f8fafc"/>
+  <text x="70" y="52" class="title">Lumina AWS Runtime Architecture</text>
+
+  <rect x="265" y="82" width="1570" height="860" rx="42" fill="#ffffff" stroke="#334155" stroke-width="3"/>
+  <rect x="265" y="82" width="1570" height="58" rx="40" fill="#232f3e"/>
+  <path d="M265 110h1570v30H265z" fill="#232f3e"/>
+  <text x="300" y="121" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#ffffff">AWS Cloud</text>
+  <text x="1800" y="121" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="600" fill="#cbd5e1" text-anchor="end">us-east-1</text>
+
+  <!-- User -->
+  <g transform="translate(58 408)">
+    <circle cx="82" cy="31" r="24" fill="none" stroke="#334155" stroke-width="5"/>
+    <path d="M35 101c4-32 22-49 47-49s43 17 47 49" fill="none" stroke="#334155" stroke-width="5" stroke-linecap="round"/>
+    <text x="82" y="137" class="user-label">Users</text>
+  </g>
+
+  <!-- Route 53 -->
+  <g transform="translate(330 170)">
+    <rect class="node" width="210" height="120"/>
+    <circle cx="105" cy="37" r="25" fill="#8c4fff"/>
+    <text x="105" y="38" class="icon-text">53</text>
+    <text x="105" y="83" class="service">Amazon Route 53</text>
+    <text x="105" y="107" class="name">DNS</text>
+  </g>
+
+  <!-- CloudFront -->
+  <g transform="translate(635 170)">
+    <rect class="node" width="210" height="120"/>
+    <circle cx="105" cy="37" r="25" fill="#8c4fff"/>
+    <path d="M92 37h26M105 24v26M96 28l18 18M114 28L96 46" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    <text x="105" y="83" class="service">Amazon CloudFront</text>
+    <text x="105" y="107" class="name">CDN</text>
+  </g>
+
+  <!-- S3 Web -->
+  <g transform="translate(940 170)">
+    <rect class="node" width="210" height="120"/>
+    <circle cx="105" cy="37" r="25" fill="#3f8624"/>
+    <path d="M92 28h26l-3 23H95zM92 28c0-5 26-5 26 0" fill="none" stroke="white" stroke-width="3"/>
+    <text x="105" y="83" class="service">Amazon S3</text>
+    <text x="105" y="107" class="name">Static Web</text>
+  </g>
+
+  <!-- Cognito -->
+  <g transform="translate(520 410)">
+    <rect class="node" width="220" height="120"/>
+    <circle cx="110" cy="37" r="25" fill="#dd344c"/>
+    <circle cx="110" cy="31" r="8" fill="none" stroke="white" stroke-width="3"/>
+    <path d="M96 49c2-9 8-13 14-13s12 4 14 13" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    <text x="110" y="83" class="service">Amazon Cognito</text>
+    <text x="110" y="107" class="name">Authentication</text>
+  </g>
+
+  <!-- API Gateway -->
+  <g transform="translate(825 410)">
+    <rect class="node" width="220" height="120"/>
+    <circle cx="110" cy="37" r="25" fill="#e7157b"/>
+    <text x="110" y="38" class="icon-text">API</text>
+    <text x="110" y="83" class="service">Amazon API Gateway</text>
+    <text x="110" y="107" class="name">HTTP API</text>
+  </g>
+
+  <!-- API Lambda -->
+  <g transform="translate(1130 410)">
+    <rect class="node" width="220" height="120"/>
+    <circle cx="110" cy="37" r="25" fill="#ff9900"/>
+    <text x="110" y="38" class="icon-text">λ</text>
+    <text x="110" y="83" class="service">AWS Lambda</text>
+    <text x="110" y="107" class="name">API</text>
+  </g>
+
+  <!-- DynamoDB -->
+  <g transform="translate(1515 300)">
+    <rect class="node" width="230" height="120"/>
+    <circle cx="115" cy="37" r="25" fill="#3b48cc"/>
+    <ellipse cx="115" cy="29" rx="13" ry="5" fill="none" stroke="white" stroke-width="3"/>
+    <path d="M102 29v18c0 7 26 7 26 0V29M102 38c0 7 26 7 26 0" fill="none" stroke="white" stroke-width="3"/>
+    <text x="115" y="83" class="service">Amazon DynamoDB</text>
+    <text x="115" y="107" class="name">App Table</text>
+  </g>
+
+  <!-- S3 Uploads -->
+  <g transform="translate(1515 480)">
+    <rect class="node" width="230" height="120"/>
+    <circle cx="115" cy="37" r="25" fill="#3f8624"/>
+    <path d="M102 28h26l-3 23h-20zM102 28c0-5 26-5 26 0" fill="none" stroke="white" stroke-width="3"/>
+    <text x="115" y="83" class="service">Amazon S3</text>
+    <text x="115" y="107" class="name">Private Uploads</text>
+  </g>
+
+  <!-- SQS Jobs -->
+  <g transform="translate(1130 650)">
+    <rect class="node" width="220" height="120"/>
+    <circle cx="110" cy="37" r="25" fill="#e7157b"/>
+    <path d="M94 30h32M94 38h32M94 46h32" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    <text x="110" y="83" class="service">Amazon SQS</text>
+    <text x="110" y="107" class="name">Jobs Queue</text>
+  </g>
+
+  <!-- Worker Lambda -->
+  <g transform="translate(1515 650)">
+    <rect class="node" width="230" height="120"/>
+    <circle cx="115" cy="37" r="25" fill="#ff9900"/>
+    <text x="115" y="38" class="icon-text">λ</text>
+    <text x="115" y="83" class="service">AWS Lambda</text>
+    <text x="115" y="107" class="name">Worker</text>
+  </g>
+
+  <!-- SQS DLQ -->
+  <g transform="translate(1130 820)">
+    <rect class="node" width="220" height="100"/>
+    <circle cx="55" cy="50" r="24" fill="#e7157b"/>
+    <path d="M41 43h28M41 51h28M41 59h28" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    <text x="147" y="43" class="service">Amazon SQS</text>
+    <text x="147" y="69" class="name">Dead-letter Queue</text>
+  </g>
+
+  <!-- CloudWatch -->
+  <g transform="translate(1515 820)">
+    <rect class="node" width="230" height="100"/>
+    <circle cx="57" cy="50" r="24" fill="#e7157b"/>
+    <polyline points="43,58 50,49 57,54 66,39 72,45" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="152" y="43" class="service">Amazon CloudWatch</text>
+    <text x="152" y="69" class="name">Logs</text>
+  </g>
+
+  <!-- Flows -->
+  <path class="flow" d="M220 455 H270 V230 H330"/>
+  <path class="flow" d="M540 230 H635"/>
+  <path class="flow" d="M845 230 H940"/>
+
+  <path class="flow" d="M220 475 H520"/>
+  <path class="auth" d="M740 470 H825"/>
+  <text x="782" y="458" class="line-label">JWT</text>
+  <path class="flow" d="M1045 470 H1130"/>
+
+  <path class="flow" d="M1350 453 H1425 V360 H1515"/>
+  <path class="flow" d="M1350 488 H1425 V540 H1515"/>
+  <path class="flow" d="M1240 530 V650"/>
+  <path class="flow" d="M1350 710 H1515"/>
+  <path class="flow" d="M1745 710 H1780 V360 H1745"/>
+
+  <path class="support" d="M1240 770 V820"/>
+  <path class="support" d="M1350 500 H1390 V790 H1630 V820"/>
+  <path class="support" d="M1630 770 V820"/>
+</svg>

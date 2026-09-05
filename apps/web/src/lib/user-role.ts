@@ -48,6 +48,10 @@ export function readStoredAuthSession(defaultValue = false): boolean {
     return true;
   }
 
+  // A browser-only local session is useful for local development, but must
+  // never make the production app appear authenticated.
+  if (process.env.NODE_ENV === "production") return false;
+
   const storage = getLocalStorage();
   if (!storage) return defaultValue;
 
@@ -62,6 +66,8 @@ export function writeStoredAuthSession(signedIn: boolean) {
   if (!signedIn) {
     clearCognitoTokens();
   }
+
+  if (signedIn && process.env.NODE_ENV === "production") return;
 
   const storage = getLocalStorage();
   if (!storage) return;

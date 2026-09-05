@@ -17,7 +17,18 @@ const newsreader = Newsreader({
   display: 'swap',
 });
 
-export const metadata = {};
+export const metadata = {
+  manifest: "/site.webmanifest?v=l-square-20260905-2",
+  icons: {
+    icon: [
+      { url: "/favicon.ico?v=l-square-20260905-2", type: "image/x-icon", sizes: "16x16 32x32 48x48 64x64" },
+      { url: "/lumina-tab-icon.svg?v=l-square-20260905-2", type: "image/svg+xml", sizes: "any" },
+      { url: "/icon-32.png?v=l-square-20260905-2", type: "image/png", sizes: "32x32" },
+    ],
+    shortcut: "/favicon.ico?v=l-square-20260905-2",
+    apple: [{ url: "/apple-touch-icon.png?v=l-square-20260905-2", type: "image/png", sizes: "180x180" }],
+  },
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -30,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           disableTransitionOnChange
         >
           {children}
-          <Toaster position="bottom-right" richColors />
+          <Toaster position="top-right" richColors />
         </ThemeProvider>
       </body>
     </html>

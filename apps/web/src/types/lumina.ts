@@ -96,6 +96,7 @@ export interface CaseSummary {
   hpoCount: number;
   patientName?: string;
   status?: CaseOutcome;
+  hasLetter?: boolean;
 }
 
 export type VisitRecommendation =

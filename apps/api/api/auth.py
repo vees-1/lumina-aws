@@ -147,11 +147,11 @@ def get_current_actor(request: Request) -> tuple[str, str]:
 
     if "doctor" in groups:
         role = "doctor"
-    elif "patient" in groups:
-        role = "patient"
     else:
-        raise HTTPException(
-            status_code=403, detail="User is missing required role group ('doctor' or 'patient')"
-        )
+        # Hosted-UI self-registration creates an authenticated user before an
+        # administrator can add groups.  The safe default is the least
+        # privileged patient role; only an explicit doctor group grants
+        # clinician capabilities.
+        role = "patient"
 
     return user_id, role

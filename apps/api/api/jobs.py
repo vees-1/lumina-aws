@@ -1,3 +1,4 @@
+import json
 import os
 import time
 from typing import Any
@@ -55,29 +56,30 @@ class JobManager:
         }
 
         repo = get_dynamo_repo()
-        try:
-            repo.table.put_item(Item=job_item)
-        except Exception:
+        if repo.is_local_mode:
             if "JOB#" + job_id not in repo._local_storage:
                 repo._local_storage["JOB#" + job_id] = {}
             repo._local_storage["JOB#" + job_id]["METADATA"] = job_item
+        else:
+            repo.table.put_item(
+                Item=job_item,
+                ConditionExpression="attribute_not_exists(PK)",
+            )
 
         # Enqueue SQS message if queue configured
-        if self.queue_url:
-            try:
-                self.sqs.send_message(
-                    QueueUrl=self.queue_url,
-                    MessageBody=str(
-                        {
-                            "job_id": job_id,
-                            "user_id": user_id,
-                            "job_type": job_type,
-                            "payload": payload,
-                        }
-                    ),
-                )
-            except Exception:
-                pass
+        if self.queue_url and not repo.is_local_mode:
+            self.sqs.send_message(
+                QueueUrl=self.queue_url,
+                MessageBody=json.dumps(
+                    {
+                        "job_id": job_id,
+                        "user_id": user_id,
+                        "job_type": job_type,
+                        "payload": payload,
+                    },
+                    separators=(",", ":"),
+                ),
+            )
 
         return job_item
 
@@ -85,11 +87,11 @@ class JobManager:
         repo = get_dynamo_repo()
         pk = f"JOB#{job_id}"
         item = None
-        try:
+        if repo.is_local_mode:
+            item = repo._local_storage.get(pk, {}).get("METADATA")
+        else:
             res = repo.table.get_item(Key={"PK": pk, "SK": "METADATA"})
             item = res.get("Item")
-        except Exception:
-            item = repo._local_storage.get(pk, {}).get("METADATA")
 
         if item and user_id and item.get("userId") != user_id:
             return None
@@ -117,12 +119,12 @@ class JobManager:
             existing["error"] = error
 
         pk = f"JOB#{job_id}"
-        try:
-            repo.table.put_item(Item=existing)
-        except Exception:
+        if repo.is_local_mode:
             if pk not in repo._local_storage:
                 repo._local_storage[pk] = {}
             repo._local_storage[pk]["METADATA"] = existing
+        else:
+            repo.table.put_item(Item=existing)
 
         return existing
 

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { motion, useInView, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { useTranslations, useLocale, useMessages } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { DashboardNav } from "@/components/nav";
 import {
   ReferralLetterSheet,
@@ -16,9 +16,11 @@ import {
   type DoctorLetterProfile,
 } from "@/components/lumina/referral-letter-sheet";
 import { Button } from "@/components/ui/button";
-import { localizeHpoLabel, type HpoLabelMessages } from "@/lib/hpo";
+import { localizeHpoLabel, type HpoLabelMessages, useHpoLabels } from "@/lib/hpo";
 import { formatConfidence, formatNumber } from "@/lib/formatters";
 import {
+  apiUrl,
+  clinicalHeaders,
   generatePatientSummary,
   getCaseById,
   getAgentSuggestion,
@@ -112,7 +114,7 @@ export default function CasePage() {
 
 function HPOChip({ term }: { term: HPOTerm }) {
   const t = useTranslations("case");
-  const messages = useMessages() as HpoLabelMessages;
+  const messages = useHpoLabels(useLocale());
   const label = localizeHpoLabel(term.hpo_id, term.label, messages);
 
   return (
@@ -141,7 +143,7 @@ function RankTermChip({
   term: Pick<RankTermContext, "hpo_id" | "label" | "matched_hpo_id" | "matched_label">;
   tone?: "default" | "missing" | "distinguishing";
 }) {
-  const messages = useMessages() as HpoLabelMessages;
+  const messages = useHpoLabels(useLocale());
   const toneClasses = {
     default: "border border-[#dfe5f0] bg-[#fbfcfe] text-[#62687a]",
     missing: "border border-dashed border-[#dfe5f0] bg-white text-[#73798a]",
@@ -194,6 +196,7 @@ function RankCard({ result, rank, delay }: { result: RankResult; rank: number; d
   const contributingTerms = getTermDetails(result, "contributing").slice(0, 5);
   const missingTerms = getTermDetails(result, "missing").slice(0, 4);
   const distinguishingTerms = getTermDetails(result, "distinguishing").slice(0, 3);
+  const diseaseHref = `/${locale}/disease?orpha=${encodeURIComponent(result.orpha_code)}`;
 
   return (
     <motion.div
@@ -219,12 +222,14 @@ function RankCard({ result, rank, delay }: { result: RankResult; rank: number; d
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
-            <h3 className="text-[16px] font-normal leading-tight tracking-[-0.01em] text-[#2f3037]">{result.name}</h3>
+            <Link href={diseaseHref} className="hover:text-[#0AAFCE]">
+              <h3 className="text-[16px] font-normal leading-tight tracking-[-0.01em] text-[#2f3037]">{result.name}</h3>
+            </Link>
             <span className="flex-shrink-0 text-[13px] font-normal" style={{ color }}>
               {formatNumber(locale, Math.round(result.confidence))}%
             </span>
           </div>
-          <Link href={`/${locale}/disease?orpha=${encodeURIComponent(result.orpha_code)}`} className="mb-3 inline-block text-[12px] font-normal text-[#0AAFCE] transition-colors hover:text-[#0D1B2A]">
+          <Link href={diseaseHref} className="mb-3 inline-block text-[12px] font-normal text-[#0AAFCE] transition-colors hover:text-[#0D1B2A]">
             ORPHA:{formatNumber(locale, result.orpha_code)} ↗
           </Link>
           <ConfidenceBar value={result.confidence} color={color} delay={delay + 0.2} />
@@ -326,7 +331,7 @@ function AgentBanner({
 
 function ExplainabilityPanel({ result, caseData }: { result: RankResult; caseData: CaseData }) {
   const t = useTranslations("case");
-  const messages = useMessages() as HpoLabelMessages;
+  const messages = useHpoLabels(useLocale());
   const hpoMap = new Map(caseData.hpoTerms.map((t) => [t.hpo_id, t]));
   const modalityLabel: Record<string, string> = {
     notes: t("modalityNotes"),
@@ -416,7 +421,7 @@ function ExplainabilityPanel({ result, caseData }: { result: RankResult; caseDat
 function CandidateComparisonPanel({ rankings }: { rankings: RankResult[] }) {
   const t = useTranslations("case");
   const locale = useLocale();
-  const messages = useMessages() as HpoLabelMessages;
+  const messages = useHpoLabels(useLocale());
   const [first, second] = rankings;
 
   if (!first || !second) return null;
@@ -631,6 +636,7 @@ function LetterView({
   const t = useTranslations("case");
   const letterT = useTranslations("letter");
   const [editing, setEditing] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const isEditing = editing && !streaming && Boolean(letter);
   const wordCount = letter.trim() ? letter.trim().split(/\s+/).length : 0;
 
@@ -691,20 +697,28 @@ function LetterView({
               {letterT("print")}
             </button>
             <button
-              onClick={() =>
-                downloadLetterPdf(`${caseData.sourceSubmissionId ?? caseData.id}.pdf`, {
-                  letter,
-                  caseData,
-                  doctorProfile,
-                  submissionId: caseData.sourceSubmissionId ?? caseData.id,
-                }).catch(() => toast.error(letterT("downloadFailed")))
-              }
+              disabled={downloadingPdf}
+              onClick={async () => {
+                setDownloadingPdf(true);
+                try {
+                  await downloadLetterPdf(`${caseData.sourceSubmissionId ?? caseData.id}.pdf`, {
+                    letter,
+                    caseData,
+                    doctorProfile,
+                    submissionId: caseData.sourceSubmissionId ?? caseData.id,
+                  });
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : letterT("downloadFailed"));
+                } finally {
+                  setDownloadingPdf(false);
+                }
+              }}
               className="text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors print:hidden"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 16 16">
                 <path d="M8 2v7m0 0l-2.5-2.5M8 9l2.5-2.5M3 11.5V13h10v-1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              {letterT("downloadPdf")}
+              {downloadingPdf ? t("generating") : letterT("downloadPdf")}
             </button>
           </div>
         )}
@@ -735,27 +749,54 @@ function LetterView({
 function CasePageContent() {
   const t = useTranslations("case");
   const locale = useLocale();
-  const messages = useMessages() as HpoLabelMessages;
+  const messages = useHpoLabels(locale);
   const searchParams = useSearchParams();
   const id = searchParams.get("id") ?? "";
   const actor = useApiActor();
-  const [caseData, setCaseData] = useState<CaseData | null>(() => getCaseById(id));
-  const [letter, setLetter] = useState(() => getCaseById(id)?.referralLetterDraft ?? "");
+  const [caseData, setCaseData] = useState<CaseData | null>(null);
+  const [caseLoaded, setCaseLoaded] = useState(false);
+  const [letter, setLetter] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [letterStarted, setLetterStarted] = useState(() => Boolean(getCaseById(id)?.referralLetterDraft?.trim()));
+  const [letterStarted, setLetterStarted] = useState(false);
   const [agentSuggestion, setAgentSuggestion] = useState<AgentSuggestion | null>(null);
   const [agentDismissed, setAgentDismissed] = useState(false);
-  const [letterDob, setLetterDob] = useState(() => caseData?.patientContext?.dateOfBirth ?? "");
-  const [referringPhysicianName, setReferringPhysicianName] = useState(() => caseData?.patientContext?.referringPhysicianName ?? "");
-  const [referringClinic, setReferringClinic] = useState(() => caseData?.patientContext?.referringClinic ?? "");
-  const [recipientSpecialist, setRecipientSpecialist] = useState(() => caseData?.patientContext?.recipientSpecialist ?? "");
-  const [recipientHospital, setRecipientHospital] = useState(() => caseData?.patientContext?.recipientHospital ?? "");
-  const [letterUrgency, setLetterUrgency] = useState(() => caseData?.patientContext?.urgency ?? "routine");
+  const [letterDob, setLetterDob] = useState("");
+  const [referringPhysicianName, setReferringPhysicianName] = useState("");
+  const [referringClinic, setReferringClinic] = useState("");
+  const [recipientSpecialist, setRecipientSpecialist] = useState("");
+  const [recipientHospital, setRecipientHospital] = useState("");
+  const [letterUrgency, setLetterUrgency] = useState("routine");
   const [showLetterForm, setShowLetterForm] = useState(false);
   const [releaseSubmission, setReleaseSubmission] = useState<PatientSubmission | null>(null);
   const [visitRecommendation, setVisitRecommendation] = useState<VisitRecommendation>("routine_specialist");
   const [releaseBusy, setReleaseBusy] = useState(false);
   const [moreDataMessage, setMoreDataMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (!id) {
+        setCaseLoaded(true);
+        return;
+      }
+      const storedCase = getCaseById(id);
+      if (!storedCase) return;
+      setCaseData(storedCase);
+      setLetter(storedCase.referralLetterDraft ?? "");
+      setLetterStarted(Boolean(storedCase.referralLetterDraft?.trim()));
+      setLetterDob(storedCase.patientContext?.dateOfBirth ?? "");
+      setReferringPhysicianName(storedCase.patientContext?.referringPhysicianName ?? "");
+      setReferringClinic(storedCase.patientContext?.referringClinic ?? "");
+      setRecipientSpecialist(storedCase.patientContext?.recipientSpecialist ?? "");
+      setRecipientHospital(storedCase.patientContext?.recipientHospital ?? "");
+      setLetterUrgency(storedCase.patientContext?.urgency ?? "routine");
+      setCaseLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   useEffect(() => {
     if (!actor || !id) return;
@@ -766,8 +807,15 @@ function CasePageContent() {
           setLetter(remoteCase.referralLetterDraft);
           setLetterStarted(true);
         }
+        setLetterDob(remoteCase.patientContext?.dateOfBirth ?? "");
+        setReferringPhysicianName(remoteCase.patientContext?.referringPhysicianName ?? "");
+        setReferringClinic(remoteCase.patientContext?.referringClinic ?? "");
+        setRecipientSpecialist(remoteCase.patientContext?.recipientSpecialist ?? "");
+        setRecipientHospital(remoteCase.patientContext?.recipientHospital ?? "");
+        setLetterUrgency(remoteCase.patientContext?.urgency ?? "routine");
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setCaseLoaded(true));
   }, [actor, id]);
 
   useEffect(() => {
@@ -887,11 +935,10 @@ function CasePageContent() {
   };
 
   const handleExportFHIR = async (data: CaseData, caseId: string) => {
-    const API = "/api";
     try {
-      const res = await fetch(`${API}/fhir/export`, {
+      const res = await fetch(apiUrl("/fhir/export"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: clinicalHeaders("application/json"),
         body: JSON.stringify({
           case_id: caseId,
           lang: locale,
@@ -934,6 +981,18 @@ function CasePageContent() {
     }, 400);
     return () => window.clearTimeout(timeout);
   }, [caseData, letter, letterStarted, streaming]);
+
+  if (!caseLoaded) {
+    return (
+      <div className="min-h-screen bg-[#F7F8FA]">
+        <DashboardNav />
+        <main className="mx-auto max-w-3xl animate-pulse px-6 pb-16 pt-24">
+          <div className="mb-6 h-8 w-64 bg-black/[0.06]" />
+          <div className="h-72 bg-black/[0.04]" />
+        </main>
+      </div>
+    );
+  }
 
   if (!caseData) {
     return (

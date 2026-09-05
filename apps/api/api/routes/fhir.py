@@ -1,9 +1,11 @@
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from api.auth import get_current_actor
 
 router = APIRouter(prefix="/fhir", tags=["fhir"])
 
@@ -136,7 +138,10 @@ def _now() -> str:
 
 
 @router.post("/export")
-async def export_fhir(body: FHIRExportRequest) -> JSONResponse:
+async def export_fhir(body: FHIRExportRequest, request: Request) -> JSONResponse:
+    _user_id, role = get_current_actor(request)
+    if role != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can export FHIR records")
     now = _now()
     bundle_id = _uuid()
     composition_id = _uuid()

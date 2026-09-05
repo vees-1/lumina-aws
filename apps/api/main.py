@@ -58,7 +58,11 @@ def _load_facial_vocab(engine) -> list[str]:
 
 
 def ensure_app_state(app: FastAPI):
-    if hasattr(app.state, "db_engine") and app.state.db_engine is not None and hasattr(app.state, "scoring_index"):
+    if (
+        hasattr(app.state, "db_engine")
+        and app.state.db_engine is not None
+        and hasattr(app.state, "scoring_index")
+    ):
         return
     engine = getattr(app.state, "db_engine", None) or get_engine()
     app.state.db_engine = engine
@@ -118,9 +122,14 @@ app.add_middleware(
 
 @app.middleware("http")
 async def ensure_state_middleware(request, call_next):
-    if request.url.path == "/health":
+    path = request.url.path
+    if path == "/health":
         if not hasattr(request.app.state, "db_engine") or request.app.state.db_engine is None:
             request.app.state.db_engine = get_engine()
+    elif path.startswith("/cases") or path.startswith("/submissions"):
+        # Persistence-only routes do not need the large HPO/scoring indexes.
+        # Loading them here makes a cold case-list request exceed the browser timeout.
+        pass
     else:
         ensure_app_state(request.app)
     return await call_next(request)
@@ -155,4 +164,3 @@ try:
     handler = Mangum(app, lifespan="off")
 except ImportError:
     handler = None
-

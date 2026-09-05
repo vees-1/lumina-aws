@@ -1,7 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { useEffect, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { apiFetch, apiUrl, clinicalHeaders } from "@/lib/api";
 import type { CaseData, PatientSubmission } from "@/types/lumina";
 
 export interface DoctorLetterProfile {
@@ -115,17 +117,24 @@ export async function downloadLetterPdf(fileName: string, payload: {
   doctorProfile?: DoctorLetterProfile | null;
   submissionId?: string | null;
 }) {
-  const res = await fetch("/api/agent/letter-pdf", {
+  const res = await apiFetch(apiUrl("/agent/letter-pdf"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: clinicalHeaders("application/json"),
     body: JSON.stringify({
       letter: payload.letter,
       case_data: payload.caseData ?? {},
       doctor_profile: payload.doctorProfile ?? {},
       submission_id: payload.submissionId ?? undefined,
     }),
-  });
-  if (!res.ok) throw new Error("PDF generation failed");
+  }, 45_000);
+  if (!res.ok) {
+    let detail = "PDF generation failed";
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {}
+    throw new Error(detail);
+  }
   const blob = await res.blob();
   if (blob.type && !blob.type.includes("pdf")) throw new Error("PDF generation failed");
   const url = URL.createObjectURL(blob);
@@ -135,17 +144,23 @@ export async function downloadLetterPdf(fileName: string, payload: {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 export function useDoctorLetterProfile(): DoctorLetterProfile | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const saved = localStorage.getItem("lumina_doc_info") ?? localStorage.getItem("lumina_doctor_profile");
-    return saved ? JSON.parse(saved) : null;
-  } catch {
-    return null;
-  }
+  const [profile, setProfile] = useState<DoctorLetterProfile | null>(null);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      try {
+        const saved = localStorage.getItem("lumina_doc_info") ?? localStorage.getItem("lumina_doctor_profile");
+        setProfile(saved ? JSON.parse(saved) : null);
+      } catch {
+        setProfile(null);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+  return profile;
 }
 
 export function ReferralLetterSheet({

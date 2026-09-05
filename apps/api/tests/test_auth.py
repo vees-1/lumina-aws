@@ -69,7 +69,7 @@ def test_jwt_verification_success_doctor(monkeypatch):
         assert response.json() == {"user_id": "user-uuid-123", "role": "doctor"}
 
 
-def test_jwt_missing_required_group_returns_403(monkeypatch):
+def test_jwt_missing_required_group_defaults_to_patient(monkeypatch):
     monkeypatch.delenv("LUMINA_AUTH_MODE", raising=False)
     monkeypatch.setenv("COGNITO_USER_POOL_ID", "us-east-1_TestPool")
 
@@ -80,5 +80,5 @@ def test_jwt_missing_required_group_returns_403(monkeypatch):
     }
     with patch("api.auth.verify_cognito_jwt", return_value=payload):
         response = client.get("/protected", headers={"Authorization": "Bearer fake.cognito.jwt"})
-        assert response.status_code == 403
-        assert "missing required role group" in response.json()["detail"]
+        assert response.status_code == 200
+        assert response.json() == {"user_id": "user-uuid-456", "role": "patient"}

@@ -1,0 +1,19 @@
+{
+  "name": "Lumina Differential Diagnosis",
+  "short_name": "Lumina",
+  "icons": [
+    {
+      "src": "/icon-192.png?v=l-square-20260905-2",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png?v=l-square-20260905-2",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#0A6FB5",
+  "background_color": "#FFFFFF",
+  "display": "standalone"
+}

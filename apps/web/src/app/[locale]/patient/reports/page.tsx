@@ -23,16 +23,14 @@ export default function PatientReportsPage() {
   const t = useTranslations("patientReports");
   const actor = useApiActor();
   const doctorProfile = useDoctorLetterProfile();
-  const [fallbackReports] = useState<PatientSubmission[]>(() =>
-    getPatientSubmissions().filter((item) => item.status === "released_to_patient")
-  );
   const [reports, setReports] = useState<PatientSubmission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [downloadingReportId, setDownloadingReportId] = useState<string | null>(null);
   useEffect(() => {
     if (!actor) return;
     getPatientSubmissionsRemote(actor)
       .then((items) => setReports(items.filter((item) => item.status === "released_to_patient")))
-      .catch(() => setReports(fallbackReports))
+      .catch(() => setReports(getPatientSubmissions().filter((item) => item.status === "released_to_patient")))
       .finally(() => setLoading(false));
   }, [actor]);
 
@@ -100,17 +98,25 @@ export default function PatientReportsPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  downloadLetterPdf(`${report.id}.pdf`, {
-                                    letter: report.releasedLetterMarkdown ?? "",
-                                    doctorProfile,
-                                    submissionId: report.id,
-                                  }).catch(() => toast.error(t("downloadFailed")))
-                                }
+                                disabled={downloadingReportId !== null}
+                                onClick={async () => {
+                                  setDownloadingReportId(report.id);
+                                  try {
+                                    await downloadLetterPdf(`${report.id}.pdf`, {
+                                      letter: report.releasedLetterMarkdown ?? "",
+                                      doctorProfile,
+                                      submissionId: report.id,
+                                    });
+                                  } catch (error) {
+                                    toast.error(error instanceof Error ? error.message : t("downloadFailed"));
+                                  } finally {
+                                    setDownloadingReportId(null);
+                                  }
+                                }}
                                 className="inline-flex h-8 items-center gap-1.5 rounded-sm border border-[#DDE3ED] px-3 text-[12px] text-[#0D1B2A] hover:border-[#0AAFCE]"
                               >
                                 <Download className="h-3.5 w-3.5" />
-                                {t("downloadPdf")}
+                                {downloadingReportId === report.id ? t("loading") : t("downloadPdf")}
                               </button>
                             </div>
                           </div>

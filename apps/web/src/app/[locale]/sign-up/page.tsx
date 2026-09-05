@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Stethoscope, User } from "lucide-react";
+import { User } from "lucide-react";
 import { Suspense } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
@@ -72,7 +72,7 @@ function SignUpContent() {
                     className="group flex items-start gap-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-5 text-left transition-all hover:border-cyan-400 hover:shadow-[0_8px_30px_rgba(34,211,238,0.15)]"
                   >
                     <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-500 transition-colors group-hover:bg-cyan-500 group-hover:text-white dark:bg-cyan-950/30">
-                      <Stethoscope className="h-6 w-6" />
+                      <span aria-hidden className="text-[24px] font-semibold leading-none tracking-[-0.08em]">L</span>
                     </span>
                     <span>
                       <span className="block text-[17px] font-normal text-slate-900 dark:text-white">{t("yesIAmADoctor")}</span>

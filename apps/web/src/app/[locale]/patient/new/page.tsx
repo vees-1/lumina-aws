@@ -17,6 +17,7 @@ const labelClass = "block text-[12px] font-normal uppercase tracking-[0.08em] te
 export default function PatientNewSubmissionPage() {
   const locale = useLocale();
   const t = useTranslations("patientNewSubmission");
+  const tCommon = useTranslations("common");
   const router = useRouter();
   const actor = useApiActor();
   const [patientName, setPatientName] = useState("");
@@ -167,7 +168,7 @@ export default function PatientNewSubmissionPage() {
             <aside className="rounded-sm border border-[#DDE3ED] bg-white p-6">
               <h2 className="text-[15px] font-normal tracking-[-0.02em]">{t("gateTitle")}</h2>
               <p className="mt-3 text-[13.5px] leading-6 text-[#4A5568]">
-                {t("gateDesc")}
+                {t("gateDesc", { brandName: tCommon("brandName") })}
               </p>
               <div className="my-5 border-t border-[#DDE3ED]" />
               <div className="space-y-2 text-[12.5px] text-[#4A5568]">

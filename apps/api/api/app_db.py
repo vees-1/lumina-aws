@@ -22,7 +22,11 @@ def _resolve_app_db_path() -> Path:
 
 APP_DB_PATH = _resolve_app_db_path()
 APP_DATA_DIR = APP_DB_PATH.parent
-UPLOAD_DIR = Path("/tmp/uploads/submissions") if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") else APP_DATA_DIR / "uploads" / "submissions"
+UPLOAD_DIR = (
+    Path("/tmp/uploads/submissions")
+    if os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+    else APP_DATA_DIR / "uploads" / "submissions"
+)
 
 
 def get_app_engine():

@@ -7,9 +7,12 @@ import { motion } from "framer-motion";
 import { useLocale, useTranslations } from "next-intl";
 import { Copy, Download, Edit3, Check, ArrowLeft, Printer, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getCaseById, streamLetter } from "@/lib/api";
-import { CaseData } from "@/types/lumina";
+import { getCaseById, getCaseRemote, streamLetter } from "@/lib/api";
+import type { CaseData } from "@/types/lumina";
 import { DashboardNav } from "@/components/nav";
+import { downloadLetterPdf, useDoctorLetterProfile } from "@/components/lumina/referral-letter-sheet";
+import { LoadingScreen } from "@/components/loading-screen";
+import { useApiActor } from "@/lib/use-api-actor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -48,13 +51,38 @@ function LetterPageContent() {
   const locale = useLocale();
   const searchParams = useSearchParams();
   const id = searchParams.get("id") ?? "";
-  const [caseData] = useState<CaseData | null>(() => getCaseById(id));
+  const actor = useApiActor();
+  const doctorProfile = useDoctorLetterProfile();
+  const [caseData, setCaseData] = useState<CaseData | null>(null);
+  const [caseLoaded, setCaseLoaded] = useState(false);
   const [letter, setLetter] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const hasStarted = useRef(false);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const storedCase = id ? getCaseById(id) : null;
+      if (storedCase) {
+        setCaseData(storedCase);
+        setCaseLoaded(true);
+      } else if (!id) {
+        setCaseLoaded(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [id]);
+
+  useEffect(() => {
+    if (!actor || !id) return;
+    getCaseRemote(id, actor)
+      .then(setCaseData)
+      .catch(() => {})
+      .finally(() => setCaseLoaded(true));
+  }, [actor, id]);
 
   useEffect(() => {
     if (!caseData || hasStarted.current) return;
@@ -78,19 +106,21 @@ function LetterPageContent() {
     navigator.clipboard.writeText(letter);
   };
 
-  const handleDownload = () => {
-    const clean = letter
-      .replace(/^#{1,3}\s+/gm, "")
-      .replace(/\*\*/g, "")
-      .replace(/^[-*]\s+/gm, "• ")
-      .trim();
-    const blob = new Blob([clean], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = t("filename", { id: id.slice(0, 8).toUpperCase() });
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleDownload = async () => {
+    if (!caseData || !letter.trim()) return;
+    setDownloading(true);
+    try {
+      await downloadLetterPdf(`${id || "referral"}.pdf`, {
+        letter,
+        caseData,
+        doctorProfile,
+        submissionId: caseData.sourceSubmissionId ?? caseData.id,
+      });
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : t("downloadFailed"));
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handlePrint = () => {
@@ -194,7 +224,25 @@ function LetterPageContent() {
     win.document.close();
   };
 
-  const topDx = caseData?.rankings?.[0]?.name ?? t("unknown");
+  if (!caseLoaded) {
+    return <LoadingScreen text={t("waiting")} />;
+  }
+
+  if (!caseData) {
+    return (
+      <div className="min-h-screen bg-[#fafafa]">
+        <DashboardNav />
+        <main className="mx-auto max-w-2xl px-6 pb-16 pt-28 text-center">
+          <h1 className="text-xl font-normal">{tc("notFound")}</h1>
+          <Link href={`/${locale}/cases`} className="mt-5 inline-block text-sm text-[#0AAFCE] hover:underline">
+            {tc("backToDashboard")}
+          </Link>
+        </main>
+      </div>
+    );
+  }
+
+  const topDx = caseData.rankings?.[0]?.name ?? t("unknown");
   const wordCount = letter.split(/\s+/).filter(Boolean).length;
 
   return (
@@ -262,9 +310,10 @@ function LetterPageContent() {
               variant="outline"
               size="sm"
               onClick={handleDownload}
+              disabled={!caseData || !letter.trim() || downloading}
               className="h-9 w-9 rounded-full p-0 bg-white shadow-sm"
             >
-              <Download className="w-3.5 h-3.5" />
+              {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             </Button>
           </div>
         </div>

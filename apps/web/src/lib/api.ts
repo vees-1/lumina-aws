@@ -1,6 +1,9 @@
 import type { CaseData, CaseOutcome, CaseSummary, GeneticEvidence, HPOTerm, PatientContext, PatientSubmission, PatientSummary, RankResult, VisitRecommendation } from "@/types/lumina";
+import { getStoredCognitoToken } from "@/lib/cognito-auth";
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "") || "/api";
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const recentCases = new Map<string, CaseData>();
 type StoredCaseSummary = CaseSummary & { status: CaseOutcome };
 export type ApiActor = { userId: string; role: "doctor" | "patient"; token?: string };
 
@@ -8,6 +11,25 @@ export interface ApiHealth {
   status: string;
   version?: string;
   db?: string;
+}
+
+export async function apiFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The server took too long to respond. Please try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 async function extractionError(res: Response, fallback: string): Promise<Error> {
@@ -40,6 +62,23 @@ function actorHeaders(actor: ApiActor): HeadersInit {
   return headers;
 }
 
+export function apiUrl(path: string): string {
+  return `${API}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+export function clinicalHeaders(contentType?: string): HeadersInit {
+  const token = getStoredCognitoToken();
+  const authorization = token
+    ? `Bearer ${token}`
+    : process.env.NODE_ENV !== "production"
+      ? "Bearer local-doctor"
+      : null;
+  if (!authorization) throw new Error("Please sign in as a doctor to use clinical tools.");
+  return contentType
+    ? { Authorization: authorization, "Content-Type": contentType }
+    : { Authorization: authorization };
+}
+
 function caseToSummary(caseData: CaseData): StoredCaseSummary {
   return {
     id: caseData.id,
@@ -49,7 +88,8 @@ function caseToSummary(caseData: CaseData): StoredCaseSummary {
     modalities: caseData.modalities,
     hpoCount: caseData.hpoTerms.length,
     patientName: caseData.patientContext?.patientName,
-    status: caseData.outcome ?? "pending",
+    status: caseData.outcome ?? defaultCaseOutcome(caseData),
+    hasLetter: Boolean(caseData.referralLetterDraft?.trim()),
   };
 }
 
@@ -86,20 +126,21 @@ export async function createPatientSubmissionRemote(input: {
 
 export async function getPatientSubmissionsRemote(actor: ApiActor, status?: string): Promise<PatientSubmission[]> {
   const params = status ? `?status=${encodeURIComponent(status)}` : "";
-  const res = await fetch(`${API}/submissions${params}`, { headers: actorHeaders(actor), cache: "no-store" });
+  const res = await apiFetch(`${API}/submissions${params}`, { headers: actorHeaders(actor), cache: "no-store" });
   return jsonOrThrow<PatientSubmission[]>(res, "Could not load submissions");
 }
 
 export async function getPatientSubmissionRemote(id: string, actor: ApiActor): Promise<PatientSubmission> {
-  const res = await fetch(`${API}/submissions/${id}`, { headers: actorHeaders(actor), cache: "no-store" });
+  const res = await apiFetch(`${API}/submissions/${id}`, { headers: actorHeaders(actor), cache: "no-store" });
   return jsonOrThrow<PatientSubmission>(res, "Could not load submission");
 }
 
 export async function deletePatientSubmissionRemote(id: string, actor: ApiActor): Promise<void> {
-  const res = await fetch(`${API}/submissions/${id}`, {
+  const res = await apiFetch(`${API}/submissions/${id}`, {
     method: "DELETE",
     headers: actorHeaders(actor),
   });
+  if (res.status === 404) return;
   await jsonOrThrow<{ ok: boolean }>(res, "Could not delete submission");
 }
 
@@ -181,20 +222,35 @@ export async function updateCaseRemote(caseData: CaseData, actor: ApiActor, subm
 }
 
 export async function getCasesRemote(actor: ApiActor): Promise<CaseData[]> {
-  const res = await fetch(`${API}/cases`, { headers: actorHeaders(actor), cache: "no-store" });
+  const res = await apiFetch(`${API}/cases`, { headers: actorHeaders(actor), cache: "no-store" });
   return jsonOrThrow<CaseData[]>(res, "Could not load cases");
 }
 
 export async function getCaseRemote(id: string, actor: ApiActor): Promise<CaseData> {
-  const res = await fetch(`${API}/cases/${id}`, { headers: actorHeaders(actor), cache: "no-store" });
-  return jsonOrThrow<CaseData>(res, "Could not load case");
+  const retryableStatuses = new Set([404, 408, 429, 500, 502, 503, 504]);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const res = await apiFetch(`${API}/cases/${id}`, { headers: actorHeaders(actor), cache: "no-store" });
+      if (res.ok) return res.json();
+      if (!retryableStatuses.has(res.status) || attempt === 3) {
+        return jsonOrThrow<CaseData>(res, "Could not load case");
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt === 3) throw error;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
+  }
+  throw lastError instanceof Error ? lastError : new Error("Could not load case");
 }
 
 export async function deleteCaseRemote(id: string, actor: ApiActor): Promise<void> {
-  const res = await fetch(`${API}/cases/${id}`, {
+  const res = await apiFetch(`${API}/cases/${id}`, {
     method: "DELETE",
     headers: actorHeaders(actor),
   });
+  if (res.status === 404) return;
   await jsonOrThrow<{ ok: boolean }>(res, "Could not delete case");
 }
 
@@ -202,46 +258,69 @@ export function summarizeCases(cases: CaseData[]): StoredCaseSummary[] {
   return cases.map(caseToSummary);
 }
 
+export function reconcileCaseStorage(cases: CaseData[]): StoredCaseSummary[] {
+  const remoteSummaries = summarizeCases(cases);
+  if (typeof window === "undefined") return remoteSummaries;
+
+  const remoteIds = new Set(remoteSummaries.map((summary) => summary.id));
+  for (const localSummary of getCaseSummaries()) {
+    if (!remoteIds.has(localSummary.id)) {
+      recentCases.delete(localSummary.id);
+      try {
+        localStorage.removeItem(`lumina_case_${localSummary.id}`);
+      } catch {
+        // Continue with the authoritative server list if storage is unavailable.
+      }
+    }
+  }
+  try {
+    localStorage.setItem("lumina_cases", JSON.stringify(remoteSummaries));
+  } catch {
+    // Accurate server-backed UI does not depend on the optional browser cache.
+  }
+  return remoteSummaries;
+}
+
 export async function submitNotes(notes: string): Promise<HPOTerm[]> {
-  const res = await fetch(`${API}/intake/text`, {
+  const res = await fetch(apiUrl("/intake/text"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: clinicalHeaders("application/json"),
     body: JSON.stringify({ notes }),
   });
-  if (!res.ok) throw new Error("Notes extraction failed");
+  if (!res.ok) throw await extractionError(res, "Notes extraction failed");
   return res.json();
 }
 
 export async function suggestNotes(notes: string): Promise<HPOTerm[]> {
-  const res = await fetch(`${API}/intake/text/suggest`, {
+  const res = await fetch(apiUrl("/intake/text/suggest"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: clinicalHeaders("application/json"),
     body: JSON.stringify({ notes }),
   });
-  if (!res.ok) throw new Error("Notes suggestion failed");
+  if (!res.ok) throw await extractionError(res, "Notes suggestion failed");
   return res.json();
 }
 
 export async function submitPhoto(file: File, facial = false): Promise<HPOTerm[]> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API}/intake/photo?facial=${facial}`, { method: "POST", body: form });
-  if (!res.ok) throw new Error("Photo extraction failed");
+  const res = await fetch(apiUrl(`/intake/photo?facial=${facial}`), { method: "POST", headers: clinicalHeaders(), body: form });
+  if (!res.ok) throw await extractionError(res, "Photo extraction failed");
   return res.json();
 }
 
 export async function suggestPhoto(file: File, facial = false): Promise<HPOTerm[]> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API}/intake/photo/suggest?facial=${facial}`, { method: "POST", body: form });
-  if (!res.ok) throw new Error("Photo suggestion failed");
+  const res = await fetch(apiUrl(`/intake/photo/suggest?facial=${facial}`), { method: "POST", headers: clinicalHeaders(), body: form });
+  if (!res.ok) throw await extractionError(res, "Photo suggestion failed");
   return res.json();
 }
 
 export async function submitLab(file: File): Promise<HPOTerm[]> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API}/intake/lab`, { method: "POST", body: form });
+  const res = await fetch(`${API}/intake/lab`, { method: "POST", headers: clinicalHeaders(), body: form });
   if (!res.ok) throw await extractionError(res, "Lab extraction failed");
   return res.json();
 }
@@ -249,7 +328,7 @@ export async function submitLab(file: File): Promise<HPOTerm[]> {
 export async function suggestLab(file: File): Promise<HPOTerm[]> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API}/intake/lab/suggest`, { method: "POST", body: form });
+  const res = await fetch(`${API}/intake/lab/suggest`, { method: "POST", headers: clinicalHeaders(), body: form });
   if (!res.ok) throw await extractionError(res, "Lab suggestion failed");
   return res.json();
 }
@@ -257,7 +336,7 @@ export async function suggestLab(file: File): Promise<HPOTerm[]> {
 export async function submitVcf(file: File): Promise<HPOTerm[]> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API}/intake/vcf`, { method: "POST", body: form });
+  const res = await fetch(`${API}/intake/vcf`, { method: "POST", headers: clinicalHeaders(), body: form });
   if (!res.ok) throw await extractionError(res, "VCF extraction failed");
   return res.json();
 }
@@ -265,10 +344,10 @@ export async function submitVcf(file: File): Promise<HPOTerm[]> {
 export async function scoreCase(terms: HPOTerm[], topK = 10, modalities = 1, geneticEvidence: GeneticEvidence[] = []): Promise<RankResult[]> {
   const res = await fetch(`${API}/score`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: clinicalHeaders("application/json"),
     body: JSON.stringify({ terms, top_k: topK, modalities, genetic_evidence: geneticEvidence }),
   });
-  if (!res.ok) throw new Error("Scoring failed");
+  if (!res.ok) throw await extractionError(res, "Scoring failed");
   return res.json();
 }
 
@@ -286,7 +365,7 @@ export async function getAgentSuggestion(
 ): Promise<AgentSuggestion> {
   const res = await fetch(`${API}/agent/next`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: clinicalHeaders("application/json"),
     body: JSON.stringify({ top5, modalities_used: modalitiesUsed, cycle, lang }),
   });
   if (!res.ok) throw new Error("Agent suggestion failed");
@@ -308,35 +387,47 @@ export async function* streamLetter(
       doctorProfile = JSON.parse(localStorage.getItem("lumina_doc_info") ?? localStorage.getItem("lumina_doctor_profile") ?? "{}");
     } catch {}
   }
-  const res = await fetch(`${API}/agent/letter`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      top5: caseData.rankings.slice(0, 10),
-      evidence: { hpo_terms: caseData.hpoTerms, modalities: caseData.modalities },
-      patient_context: { ...(caseData.patientContext ?? {}), doctorProfile, ...options },
-      length_preference: options?.letterLengthPreference,
-      lang,
-    }),
-  });
-  if (!res.ok || !res.body) throw new Error("Letter generation failed");
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const data = line.slice(6).trim();
-      if (data === "[DONE]") return;
-      try {
-        yield JSON.parse(data).text as string;
-      } catch {}
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 90_000);
+  try {
+    const res = await fetch(`${API}/agent/letter`, {
+      method: "POST",
+      headers: clinicalHeaders("application/json"),
+      signal: controller.signal,
+      body: JSON.stringify({
+        top5: caseData.rankings.slice(0, 10),
+        evidence: { hpo_terms: caseData.hpoTerms, modalities: caseData.modalities },
+        patient_context: { ...(caseData.patientContext ?? {}), doctorProfile, ...options },
+        length_preference: options?.letterLengthPreference,
+        lang,
+      }),
+    });
+    if (!res.ok || !res.body) throw await extractionError(res, "Letter generation failed");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") return;
+        try {
+          yield JSON.parse(data).text as string;
+        } catch {}
+      }
     }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Letter generation timed out. Please try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
@@ -347,7 +438,7 @@ export async function generatePatientSummary(
 ): Promise<PatientSummary> {
   const res = await fetch(`${API}/agent/patient-summary`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: clinicalHeaders("application/json"),
     body: JSON.stringify({ case_data: caseData, visit_recommendation: visitRecommendation, lang }),
   });
   return jsonOrThrow<PatientSummary>(res, "Could not generate patient summary");
@@ -357,9 +448,14 @@ export function saveCaseToStorage(caseData: CaseData): void {
   if (typeof window === "undefined") return;
   const normalizedCase: CaseData = {
     ...caseData,
-    outcome: caseData.outcome ?? "pending",
+    outcome: caseData.outcome ?? defaultCaseOutcome(caseData),
   };
-  localStorage.setItem(`lumina_case_${caseData.id}`, JSON.stringify(normalizedCase));
+  recentCases.set(normalizedCase.id, normalizedCase);
+  try {
+    localStorage.setItem(`lumina_case_${caseData.id}`, JSON.stringify(normalizedCase));
+  } catch {
+    // The in-memory copy still carries a newly scored case across client navigation.
+  }
   const summaries = getCaseSummaries();
   const summary: StoredCaseSummary = {
     id: normalizedCase.id,
@@ -370,9 +466,14 @@ export function saveCaseToStorage(caseData: CaseData): void {
     hpoCount: normalizedCase.hpoTerms.length,
     patientName: normalizedCase.patientContext?.patientName,
     status: normalizedCase.outcome ?? "pending",
+    hasLetter: Boolean(normalizedCase.referralLetterDraft?.trim()),
   };
   summaries.unshift(summary);
-  localStorage.setItem("lumina_cases", JSON.stringify(summaries.slice(0, 50)));
+  try {
+    localStorage.setItem("lumina_cases", JSON.stringify(summaries.slice(0, 50)));
+  } catch {
+    // A full local cache must never block navigation to the freshly scored case.
+  }
 }
 
 export function getCaseSummaries(): StoredCaseSummary[] {
@@ -390,6 +491,8 @@ export function getCaseSummaries(): StoredCaseSummary[] {
 
 export function getCaseById(id: string): CaseData | null {
   if (typeof window === "undefined") return null;
+  const recentCase = recentCases.get(id);
+  if (recentCase) return recentCase;
   try {
     return JSON.parse(localStorage.getItem(`lumina_case_${id}`) ?? "null");
   } catch {
@@ -405,7 +508,12 @@ export function updateCaseInStorage(caseId: string, updated: CaseData): void {
     ...updated,
     outcome: normalizeCaseOutcome(updated.outcome ?? existingStatus),
   };
-  localStorage.setItem(`lumina_case_${caseId}`, JSON.stringify(normalizedCase));
+  recentCases.set(caseId, normalizedCase);
+  try {
+    localStorage.setItem(`lumina_case_${caseId}`, JSON.stringify(normalizedCase));
+  } catch {
+    // Keep the current result available even when persistent browser storage is full.
+  }
   const idx = summaries.findIndex((s: CaseSummary) => s.id === caseId);
   const summary: StoredCaseSummary = {
     id: normalizedCase.id,
@@ -416,14 +524,20 @@ export function updateCaseInStorage(caseId: string, updated: CaseData): void {
     hpoCount: normalizedCase.hpoTerms.length,
     patientName: normalizedCase.patientContext?.patientName,
     status: normalizedCase.outcome ?? "pending",
+    hasLetter: Boolean(normalizedCase.referralLetterDraft?.trim()),
   };
   if (idx >= 0) summaries[idx] = summary;
   else summaries.unshift(summary);
-  localStorage.setItem("lumina_cases", JSON.stringify(summaries.slice(0, 50)));
+  try {
+    localStorage.setItem("lumina_cases", JSON.stringify(summaries.slice(0, 50)));
+  } catch {
+    // The current in-memory case remains usable even if the summary cache is full.
+  }
 }
 
 export function deleteCaseFromStorage(caseId: string): void {
   if (typeof window === "undefined") return;
+  recentCases.delete(caseId);
   localStorage.removeItem(`lumina_case_${caseId}`);
   const summaries = getCaseSummaries().filter((summary) => summary.id !== caseId);
   localStorage.setItem("lumina_cases", JSON.stringify(summaries));
@@ -456,6 +570,10 @@ export function exportAllCases(): void {
 export function normalizeCaseOutcome(outcome?: string | null): CaseOutcome {
   if (outcome === "confirmed" || outcome === "ruled_out" || outcome === "pending") return outcome;
   return "pending";
+}
+
+function defaultCaseOutcome(caseData: Pick<CaseData, "sourceSubmissionId">): CaseOutcome {
+  return caseData.sourceSubmissionId ? "pending" : "confirmed";
 }
 
 export function savePatientSubmission(submission: PatientSubmission): void {

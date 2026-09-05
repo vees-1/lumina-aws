@@ -67,6 +67,13 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminAddUserToGroup"
+        ]
+        Resource = aws_cognito_user_pool.pool.arn
       }
     ]
   })
@@ -99,8 +106,8 @@ resource "aws_lambda_function" "api" {
   role             = aws_iam_role.lambda_exec.arn
   handler          = "main.handler"
   runtime          = "python3.11"
-  memory_size      = 512
-  timeout          = 30
+  memory_size      = 1024
+  timeout          = 60
   filename         = data.archive_file.dummy_lambda.output_path
   source_code_hash = data.archive_file.dummy_lambda.output_base64sha256
 
@@ -110,6 +117,8 @@ resource "aws_lambda_function" "api" {
       LUMINA_S3_BUCKET      = aws_s3_bucket.uploads.id
       LUMINA_SQS_QUEUE_URL  = aws_sqs_queue.jobs.id
       LUMINA_AI_PROVIDER    = "demo"
+      COGNITO_USER_POOL_ID  = aws_cognito_user_pool.pool.id
+      COGNITO_CLIENT_ID     = aws_cognito_user_pool_client.client.id
     }
   }
 
@@ -123,7 +132,7 @@ resource "aws_lambda_function" "worker" {
   role             = aws_iam_role.lambda_exec.arn
   handler          = "api.worker.lambda_handler"
   runtime          = "python3.11"
-  memory_size      = 512
+  memory_size      = 1024
   timeout          = 60
   filename         = data.archive_file.dummy_lambda.output_path
   source_code_hash = data.archive_file.dummy_lambda.output_base64sha256
@@ -133,6 +142,8 @@ resource "aws_lambda_function" "worker" {
       LUMINA_DYNAMODB_TABLE = aws_dynamodb_table.table.name
       LUMINA_S3_BUCKET      = aws_s3_bucket.uploads.id
       LUMINA_AI_PROVIDER    = "demo"
+      COGNITO_USER_POOL_ID  = aws_cognito_user_pool.pool.id
+      COGNITO_CLIENT_ID     = aws_cognito_user_pool_client.client.id
     }
   }
 
@@ -142,9 +153,13 @@ resource "aws_lambda_function" "worker" {
 }
 
 resource "aws_lambda_event_source_mapping" "sqs_worker" {
-  event_source_arn = aws_sqs_queue.jobs.arn
-  function_name    = aws_lambda_function.worker.arn
-  batch_size       = 5
+  event_source_arn        = aws_sqs_queue.jobs.arn
+  function_name           = aws_lambda_function.worker.arn
+  batch_size              = 5
+  function_response_types = ["ReportBatchItemFailures"]
+  scaling_config {
+    maximum_concurrency = 2
+  }
 }
 
 # --- API Gateway HTTP API Setup ---
@@ -154,9 +169,23 @@ resource "aws_apigatewayv2_api" "http_api" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    allow_origins = ["*"]
+    allow_origins = var.web_origins
     allow_methods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
-    allow_headers = ["*"]
+    allow_headers = ["authorization", "content-type"]
+    max_age       = 3600
+  }
+
+}
+
+resource "aws_apigatewayv2_authorizer" "cognito" {
+  api_id           = aws_apigatewayv2_api.http_api.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "cognito-jwt"
+
+  jwt_configuration {
+    audience = [aws_cognito_user_pool_client.client.id]
+    issuer   = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.pool.id}"
   }
 }
 
@@ -174,15 +203,43 @@ resource "aws_apigatewayv2_integration" "lambda" {
 }
 
 resource "aws_apigatewayv2_route" "proxy" {
-  api_id    = aws_apigatewayv2_api.http_api.id
-  route_key = "ANY /{proxy+}"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  api_id             = aws_apigatewayv2_api.http_api.id
+  route_key          = "ANY /{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
 resource "aws_apigatewayv2_route" "root" {
-  api_id    = aws_apigatewayv2_api.http_api.id
-  route_key = "ANY /"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  api_id             = aws_apigatewayv2_api.http_api.id
+  route_key          = "ANY /"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+# Browser requests with an Authorization header are preflighted. These exact
+# routes must take precedence over the authenticated ANY routes so OPTIONS can
+# reach FastAPI's CORS middleware without requiring a JWT.
+resource "aws_apigatewayv2_route" "options_proxy" {
+  api_id             = aws_apigatewayv2_api.http_api.id
+  route_key          = "OPTIONS /{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "options_root" {
+  api_id             = aws_apigatewayv2_api.http_api.id
+  route_key          = "OPTIONS /"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "health" {
+  api_id             = aws_apigatewayv2_api.http_api.id
+  route_key          = "GET /health"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
 }
 
 resource "aws_lambda_permission" "apigw" {

@@ -21,6 +21,12 @@ def _actor(request: Request) -> tuple[str, str]:
     return get_current_actor(request)
 
 
+def _doctor_can_access(submission: dict, doctor_id: str) -> bool:
+    """A clinician can claim an unassigned intake, then only its reviewer may access it."""
+    reviewer = submission.get("doctorReviewerId")
+    return reviewer is None or reviewer == doctor_id
+
+
 class PresignedUploadRequest(BaseModel):
     kind: str  # "photo" | "lab"
     file_name: str
@@ -52,6 +58,65 @@ class ReleaseSubmissionBody(BaseModel):
 class CaseBody(BaseModel):
     case_data: dict
     submission_id: str | None = None
+
+
+_VALID_CASE_OUTCOMES = {"pending", "confirmed", "ruled_out"}
+
+
+def _default_case_outcome(submission_id: str | None) -> str:
+    """Patient-originated cases await review; doctor-created cases are complete."""
+    return "pending" if submission_id else "confirmed"
+
+
+def _case_data_for_list(item: dict) -> dict:
+    """Return only the fields needed by the cases list and dashboard.
+
+    Full clinical records can be large enough that returning many of them causes
+    the browser request to time out. The individual case endpoint remains the
+    source of the complete record.
+    """
+    case_data = item.get("caseData") or {}
+    rankings = case_data.get("rankings") or []
+    top = rankings[0] if rankings else {}
+    hpo_terms = case_data.get("hpoTerms") or []
+    patient_context = case_data.get("patientContext") or {}
+    submission_id = item.get("submissionId") or case_data.get("sourceSubmissionId")
+    outcome = case_data.get("outcome")
+    if outcome not in _VALID_CASE_OUTCOMES:
+        outcome = _default_case_outcome(submission_id)
+
+    return {
+        "id": case_data.get("id") or item.get("id"),
+        "timestamp": case_data.get("timestamp") or item.get("timestamp"),
+        "modalities": case_data.get("modalities") or [],
+        "hpoTerms": [
+            {
+                "hpo_id": term.get("hpo_id", ""),
+                "confidence": term.get("confidence", 0),
+                "source": term.get("source", "unknown"),
+            }
+            for term in hpo_terms
+            if isinstance(term, dict)
+        ],
+        "rankings": [
+            {
+                "orpha_code": top.get("orpha_code", 0),
+                "name": top.get("name", "Unknown"),
+                "score": top.get("score", 0),
+                "confidence": top.get("confidence", 0),
+                "contributing_terms": [],
+                "missing_terms": [],
+                "distinguishing_terms": [],
+            }
+        ]
+        if top
+        else [],
+        "patientContext": {"patientName": patient_context.get("patientName")}
+        if patient_context.get("patientName")
+        else None,
+        "referralLetterDraft": case_data.get("referralLetterDraft"),
+        "outcome": outcome,
+    }
 
 
 # --- Presigned Upload Routes ---
@@ -190,7 +255,10 @@ async def create_submission(
 async def list_submissions(request: Request, status: str | None = None):
     user_id, role = _actor(request)
     repo = get_dynamo_repo()
-    return repo.list_submissions(role=role, user_id=user_id, status=status)
+    submissions = repo.list_submissions(role=role, user_id=user_id, status=status)
+    if role == "doctor":
+        return [item for item in submissions if _doctor_can_access(item, user_id)]
+    return submissions
 
 
 @router.get("/submissions/{submission_id}")
@@ -202,6 +270,8 @@ async def get_submission(submission_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Submission not found")
     if role == "patient" and item.get("patientOwnerId") != user_id:
         raise HTTPException(status_code=403, detail="Not allowed")
+    if role == "doctor" and not _doctor_can_access(item, user_id):
+        raise HTTPException(status_code=403, detail="Submission is assigned to another doctor")
     return item
 
 
@@ -217,6 +287,8 @@ async def get_submission_file(submission_id: str, kind: str, request: Request):
         raise HTTPException(status_code=404, detail="Submission not found")
     if role == "patient" and item.get("patientOwnerId") != user_id:
         raise HTTPException(status_code=403, detail="Not allowed")
+    if role == "doctor" and not _doctor_can_access(item, user_id):
+        raise HTTPException(status_code=403, detail="Submission is assigned to another doctor")
 
     s3_key = item.get("photoS3Key") if kind == "photo" else item.get("labS3Key")
     filename = item.get("photoFileName") if kind == "photo" else item.get("labFileName")
@@ -248,6 +320,8 @@ async def start_review(submission_id: str, request: Request):
     item = repo.get_submission(submission_id)
     if not item:
         raise HTTPException(status_code=404, detail="Submission not found")
+    if not _doctor_can_access(item, user_id):
+        raise HTTPException(status_code=409, detail="Submission is already assigned to another doctor")
 
     updated = repo.update_submission(
         submission_id,
@@ -270,6 +344,8 @@ async def request_more_data(submission_id: str, body: RequestMoreDataBody, reque
     item = repo.get_submission(submission_id)
     if not item:
         raise HTTPException(status_code=404, detail="Submission not found")
+    if not _doctor_can_access(item, user_id):
+        raise HTTPException(status_code=403, detail="Submission is assigned to another doctor")
 
     repo.add_submission_message(submission_id, user_id, message)
     repo.update_submission(
@@ -293,6 +369,8 @@ async def complete_review(submission_id: str, body: LinkCaseBody, request: Reque
     item = repo.get_submission(submission_id)
     if not item:
         raise HTTPException(status_code=404, detail="Submission not found")
+    if not _doctor_can_access(item, user_id):
+        raise HTTPException(status_code=403, detail="Submission is assigned to another doctor")
 
     updated = repo.update_submission(
         submission_id,
@@ -401,6 +479,8 @@ async def create_case(body: CaseBody, request: Request):
     body.case_data["id"] = case_id
     if body.submission_id:
         body.case_data["sourceSubmissionId"] = body.submission_id
+    if body.case_data.get("outcome") not in _VALID_CASE_OUTCOMES:
+        body.case_data["outcome"] = _default_case_outcome(body.submission_id)
 
     repo = get_dynamo_repo()
     patient_owner_id = None
@@ -439,15 +519,23 @@ async def patch_case(case_id: str, body: CaseBody, request: Request):
         raise HTTPException(status_code=403, detail="Not allowed")
 
     body.case_data["id"] = case_id
-    if body.submission_id:
-        body.case_data["sourceSubmissionId"] = body.submission_id
+    submission_id = body.submission_id or case_item.get("submissionId")
+    if submission_id:
+        body.case_data["sourceSubmissionId"] = submission_id
+    if body.case_data.get("outcome") not in _VALID_CASE_OUTCOMES:
+        existing_outcome = (case_item.get("caseData") or {}).get("outcome")
+        body.case_data["outcome"] = (
+            existing_outcome
+            if existing_outcome in _VALID_CASE_OUTCOMES
+            else _default_case_outcome(submission_id)
+        )
 
     now = _now_ms()
     repo.update_case(
         case_id,
         {
             "caseData": body.case_data,
-            "submissionId": body.submission_id or case_item.get("submissionId"),
+            "submissionId": submission_id,
             "updatedAt": now,
         },
     )
@@ -462,7 +550,7 @@ async def list_cases(request: Request):
 
     repo = get_dynamo_repo()
     cases = repo.list_cases(doctor_owner_id=user_id)
-    return [c.get("caseData", {}) for c in cases]
+    return [_case_data_for_list(case) for case in cases]
 
 
 @router.get("/cases/{case_id}")

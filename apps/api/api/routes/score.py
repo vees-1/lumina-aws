@@ -3,6 +3,8 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from scoring.ranker import GeneticEvidence, RankResult
 
+from api.auth import get_current_actor
+
 router = APIRouter(prefix="/score", tags=["score"])
 
 _MODALITY_CAP = {1: 40.0, 2: 55.0, 3: 65.0, 4: 80.0}
@@ -19,6 +21,11 @@ class ScoreRequest(BaseModel):
 
 @router.post("", response_model=list[RankResult])
 async def score_case(body: ScoreRequest, request: Request) -> list[RankResult]:
+    _user_id, role = get_current_actor(request)
+    if role != "doctor":
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=403, detail="Only doctors can score clinical cases")
     index = request.app.state.scoring_index
     results = index.rank(
         body.terms,

@@ -5,11 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { v4 as uuid } from "uuid";
-import { useLocale, useMessages, useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { DashboardNav } from "@/components/nav";
 import { RoleGuard } from "@/components/lumina/role-guard";
 import { Button } from "@/components/ui/button";
-import { localizeHpoLabel, type HpoLabelMessages } from "@/lib/hpo";
+import { localizeHpoLabel, useHpoLabels } from "@/lib/hpo";
 import { formatFileSize, formatNumber } from "@/lib/formatters";
 import {
   downloadSubmissionFile,
@@ -262,7 +262,7 @@ function IntakePageContent() {
   const t = useTranslations("intake");
   const tCommon = useTranslations("common");
   const locale = useLocale();
-  const messages = useMessages() as HpoLabelMessages;
+  const messages = useHpoLabels(locale);
   const router = useRouter();
   const searchParams = useSearchParams();
   const actor = useApiActor();
@@ -413,7 +413,7 @@ function IntakePageContent() {
       toast.success(t("suggestionsReady"));
     } catch (err) {
       console.error(err);
-      toast.error(t("errorApiFailed"));
+      toast.error(err instanceof Error ? err.message : t("errorApiFailed"));
     } finally {
       setAnalyzing(false);
     }
@@ -487,6 +487,7 @@ function IntakePageContent() {
           id: caseId,
           timestamp: analysisTimestamp,
           sourceSubmissionId: submission?.id ?? submissionId ?? undefined,
+          outcome: submission?.id ?? submissionId ? "pending" as const : "confirmed" as const,
           notes: trimmedNotes || undefined,
           inputHistory: [intakeSnapshot],
           modalities,
@@ -511,7 +512,7 @@ function IntakePageContent() {
       }
     } catch (err) {
       console.error(err);
-      toast.error(t("errorApiFailed"));
+      toast.error(err instanceof Error ? err.message : t("errorApiFailed"));
       setAnalyzing(false);
     }
   };

@@ -6,7 +6,7 @@ from io import BytesIO
 from typing import Literal
 from xml.sax.saxutils import escape
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from PIL import Image, ImageFile
 from pydantic import BaseModel
@@ -27,6 +27,9 @@ from reportlab.platypus import (
     Image as ReportLabImage,
 )
 from scoring.ranker import RankResult
+
+from api.auth import get_current_actor
+from api.dynamo_repo import get_dynamo_repo
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -864,7 +867,10 @@ def _render_letter_pdf(body: LetterPdfRequest) -> bytes:
 
 
 @router.post("/next", response_model=AgentSuggestion)
-async def agent_next(body: AgentNextRequest) -> AgentSuggestion:
+async def agent_next(body: AgentNextRequest, request: Request) -> AgentSuggestion:
+    _user_id, role = get_current_actor(request)
+    if role != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can use clinical agent tools")
     from groq import AsyncGroq
 
     lang_name = _LANG_NAMES.get(body.lang, "English")
@@ -910,7 +916,10 @@ async def agent_next(body: AgentNextRequest) -> AgentSuggestion:
 
 
 @router.post("/letter")
-async def generate_letter(body: LetterRequest) -> StreamingResponse:
+async def generate_letter(body: LetterRequest, request: Request) -> StreamingResponse:
+    _user_id, role = get_current_actor(request)
+    if role != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can generate referral letters")
     from groq import AsyncGroq
 
     labels = _REFERRAL_FIELD_LABELS.get(body.lang, _REFERRAL_FIELD_LABELS["en"])
@@ -966,7 +975,10 @@ async def generate_letter(body: LetterRequest) -> StreamingResponse:
 
 
 @router.post("/patient-summary", response_model=PatientSummary)
-async def generate_patient_summary(body: PatientSummaryRequest) -> PatientSummary:
+async def generate_patient_summary(body: PatientSummaryRequest, request: Request) -> PatientSummary:
+    _user_id, role = get_current_actor(request)
+    if role != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can generate patient summaries")
     from groq import AsyncGroq
 
     fallback = _fallback_patient_summary(body.case_data, body.visit_recommendation)
@@ -1035,7 +1047,21 @@ async def generate_patient_summary(body: PatientSummaryRequest) -> PatientSummar
 
 
 @router.post("/letter-pdf")
-async def generate_letter_pdf(body: LetterPdfRequest) -> Response:
+async def generate_letter_pdf(body: LetterPdfRequest, request: Request) -> Response:
+    user_id, role = get_current_actor(request)
+    if role == "patient":
+        if not body.submission_id:
+            raise HTTPException(status_code=400, detail="A submission ID is required")
+        submission = get_dynamo_repo().get_submission(body.submission_id)
+        if not submission:
+            raise HTTPException(status_code=404, detail="Released report not found")
+        if submission.get("patientOwnerId") != user_id:
+            raise HTTPException(status_code=403, detail="Not allowed")
+        if submission.get("status") != "released_to_patient":
+            raise HTTPException(status_code=409, detail="The report has not been released yet")
+        body.letter = str(submission.get("releasedLetterMarkdown") or body.letter)
+    elif role != "doctor":
+        raise HTTPException(status_code=403, detail="Only authorized users can generate referral PDFs")
     pdf_bytes = _render_letter_pdf(body)
     filename = f"{body.submission_id or body.case_data.get('sourceSubmissionId') or body.case_data.get('id') or 'referral'}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
