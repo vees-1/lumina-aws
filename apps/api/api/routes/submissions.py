@@ -321,7 +321,9 @@ async def start_review(submission_id: str, request: Request):
     if not item:
         raise HTTPException(status_code=404, detail="Submission not found")
     if not _doctor_can_access(item, user_id):
-        raise HTTPException(status_code=409, detail="Submission is already assigned to another doctor")
+        raise HTTPException(
+            status_code=409, detail="Submission is already assigned to another doctor"
+        )
 
     updated = repo.update_submission(
         submission_id,

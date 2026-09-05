@@ -1061,7 +1061,9 @@ async def generate_letter_pdf(body: LetterPdfRequest, request: Request) -> Respo
             raise HTTPException(status_code=409, detail="The report has not been released yet")
         body.letter = str(submission.get("releasedLetterMarkdown") or body.letter)
     elif role != "doctor":
-        raise HTTPException(status_code=403, detail="Only authorized users can generate referral PDFs")
+        raise HTTPException(
+            status_code=403, detail="Only authorized users can generate referral PDFs"
+        )
     pdf_bytes = _render_letter_pdf(body)
     filename = f"{body.submission_id or body.case_data.get('sourceSubmissionId') or body.case_data.get('id') or 'referral'}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}

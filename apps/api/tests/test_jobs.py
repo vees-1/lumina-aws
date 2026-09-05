@@ -2,7 +2,8 @@ from api.jobs import get_job_manager
 from api.worker import process_job
 
 
-def test_job_enqueueing_and_worker_processing():
+def test_job_enqueueing_and_worker_processing(monkeypatch):
+    monkeypatch.setenv("LUMINA_AUTH_MODE", "local")
     manager = get_job_manager()
     job = manager.create_job(
         user_id="user-job-test",

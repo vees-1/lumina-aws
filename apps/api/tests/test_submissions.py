@@ -116,9 +116,7 @@ def test_case_list_returns_lightweight_records_for_all_cases(client):
                     "timestamp": index,
                     "notes": "large private clinical note " * 500,
                     "modalities": ["notes"],
-                    "hpoTerms": [
-                        {"hpo_id": "HP:0001250", "confidence": 0.9, "source": "notes"}
-                    ],
+                    "hpoTerms": [{"hpo_id": "HP:0001250", "confidence": 0.9, "source": "notes"}],
                     "rankings": [
                         {
                             "orpha_code": 905,

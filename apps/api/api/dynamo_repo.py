@@ -185,9 +185,7 @@ class DynamoDBRepository:
                     query_args = {
                         "IndexName": "GSI2",
                         "KeyConditionExpression": "GSI2PK = :gsi2pk",
-                        "ExpressionAttributeValues": {
-                            ":gsi2pk": f"STATUS#{submission_status}"
-                        },
+                        "ExpressionAttributeValues": {":gsi2pk": f"STATUS#{submission_status}"},
                         "ScanIndexForward": False,
                     }
                     while True:
@@ -371,9 +369,7 @@ class DynamoDBRepository:
             )
             query_args: dict[str, Any] = {
                 "IndexName": "GSI1",
-                "KeyConditionExpression": (
-                    "GSI1PK = :gsi1pk AND begins_with(GSI1SK, :gsi1sk)"
-                ),
+                "KeyConditionExpression": ("GSI1PK = :gsi1pk AND begins_with(GSI1SK, :gsi1sk)"),
                 "ExpressionAttributeValues": {
                     ":gsi1pk": f"USER#{doctor_owner_id}",
                     ":gsi1sk": "CASE#",
